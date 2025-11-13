@@ -1,38 +1,41 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/colors.dart';
 import '../../models/project.dart';
+import '../../models/session.dart';
 import '../../repositories/project_repository.dart';
-import '../sessions/session_list_screen.dart';
-import '../settings/settings_screen.dart';
+import '../../repositories/mock_session_repository.dart';
+import '../chat_screen.dart';
 
-class ProjectListScreen extends StatefulWidget {
+class SessionListScreen extends StatefulWidget {
+  final Project project;
   final ProjectRepository repository;
 
-  const ProjectListScreen({
+  const SessionListScreen({
     super.key,
+    required this.project,
     required this.repository,
   });
 
   @override
-  State<ProjectListScreen> createState() => _ProjectListScreenState();
+  State<SessionListScreen> createState() => _SessionListScreenState();
 }
 
-class _ProjectListScreenState extends State<ProjectListScreen> {
-  List<Project> _projects = [];
+class _SessionListScreenState extends State<SessionListScreen> {
+  List<Session> _sessions = [];
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _loadProjects();
+    _loadSessions();
   }
 
-  Future<void> _loadProjects() async {
+  Future<void> _loadSessions() async {
     setState(() => _isLoading = true);
     try {
-      final projects = await widget.repository.getProjects();
+      final sessions = await widget.repository.getProjectSessions(widget.project.id);
       setState(() {
-        _projects = projects;
+        _sessions = sessions;
         _isLoading = false;
       });
     } catch (e) {
@@ -45,17 +48,12 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Projects'),
+        title: Text(widget.project.name),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const Icon(Icons.add),
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const SettingsScreen(),
-                ),
-              );
+              // TODO: Create new session
             },
           ),
         ],
@@ -63,20 +61,20 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadProjects,
-              child: _projects.isEmpty
+              onRefresh: _loadSessions,
+              child: _sessions.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            Icons.folder_outlined,
+                            Icons.chat_bubble_outline,
                             size: 64,
                             color: AppColors.textTertiary,
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'No projects found',
+                            'No sessions found',
                             style: TextStyle(
                               fontSize: 18,
                               color: AppColors.textSecondary,
@@ -87,17 +85,17 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.all(16),
-                      itemCount: _projects.length,
+                      itemCount: _sessions.length,
                       itemBuilder: (context, index) {
-                        final project = _projects[index];
-                        return _buildProjectCard(project);
+                        final session = _sessions[index];
+                        return _buildSessionCard(session);
                       },
                     ),
             ),
     );
   }
 
-  Widget _buildProjectCard(Project project) {
+  Widget _buildSessionCard(Session session) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       color: AppColors.cardBackground,
@@ -111,9 +109,9 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => SessionListScreen(
-                project: project,
-                repository: widget.repository,
+              builder: (_) => ChatScreen(
+                session: session,
+                repository: MockSessionRepository(),
               ),
             ),
           );
@@ -134,7 +132,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
-                      Icons.folder,
+                      Icons.chat_bubble,
                       color: AppColors.primary,
                       size: 28,
                     ),
@@ -145,7 +143,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          project.name,
+                          session.title,
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w600,
@@ -154,7 +152,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          project.path,
+                          session.cwd,
                           style: TextStyle(
                             fontSize: 13,
                             color: AppColors.textSecondary,
@@ -171,15 +169,14 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
               Row(
                 children: [
                   _buildInfoChip(
-                    icon: Icons.chat_bubble_outline,
-                    label: '${project.sessionCount} sessions',
+                    icon: Icons.message,
+                    label: '${session.messageCount} messages',
                   ),
                   const SizedBox(width: 12),
-                  if (project.lastActiveAt != null)
-                    _buildInfoChip(
-                      icon: Icons.access_time,
-                      label: _formatTime(project.lastActiveAt!),
-                    ),
+                  _buildInfoChip(
+                    icon: Icons.access_time,
+                    label: _formatTime(session.updatedAt),
+                  ),
                 ],
               ),
             ],
