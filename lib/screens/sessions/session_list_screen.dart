@@ -44,6 +44,153 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
   }
 
+  Future<void> _createNewSession() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.cardBackground,
+        title: Text(
+          '新建会话',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          style: TextStyle(color: AppColors.textPrimary),
+          decoration: InputDecoration(
+            hintText: '输入第一条消息...',
+            hintStyle: TextStyle(color: AppColors.textTertiary),
+            border: OutlineInputBorder(
+              borderSide: BorderSide(color: AppColors.divider),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: AppColors.primary),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              '取消',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                Navigator.pop(context, controller.text.trim());
+              }
+            },
+            child: Text(
+              '创建',
+              style: TextStyle(color: AppColors.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && mounted) {
+      _startNewSession(result);
+    }
+  }
+
+  Future<void> _startNewSession(String firstMessage) async {
+    try {
+      // Show loading
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => Center(
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: AppColors.primary),
+                    const SizedBox(height: 16),
+                    Text(
+                      '正在创建会话...',
+                      style: TextStyle(color: AppColors.textPrimary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // Create new session via API
+      String? newSessionId;
+      final apiService = ApiService(baseUrl: 'http://192.168.31.99:8207');
+
+      await for (var event in apiService.chat(
+        message: firstMessage,
+        cwd: widget.project.path,
+      )) {
+        if (event['event_type'] == 'session') {
+          newSessionId = event['session_id'];
+          break;
+        }
+      }
+
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+      }
+
+      if (newSessionId != null && mounted) {
+        // Create session object
+        final newSession = Session(
+          id: newSessionId,
+          projectId: widget.project.id,
+          title: firstMessage.length > 30
+              ? '${firstMessage.substring(0, 30)}...'
+              : firstMessage,
+          name: firstMessage.length > 30
+              ? '${firstMessage.substring(0, 30)}...'
+              : firstMessage,
+          cwd: widget.project.path,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+          messageCount: 0,
+        );
+
+        // Navigate to chat screen
+        final sessionRepository = ApiSessionRepository(apiService);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChatScreen(
+              session: newSession,
+              repository: sessionRepository,
+            ),
+          ),
+        ).then((_) {
+          // Refresh session list when returning
+          _loadSessions();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('创建会话失败: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -53,9 +200,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () {
-              // TODO: Create new session
-            },
+            onPressed: _createNewSession,
           ),
         ],
       ),
