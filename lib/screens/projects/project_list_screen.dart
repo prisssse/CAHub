@@ -45,7 +45,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Projects'),
+        title: const Text('项目'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -76,7 +76,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'No projects found',
+                            '未找到项目',
                             style: TextStyle(
                               fontSize: 18,
                               color: AppColors.textSecondary,
@@ -172,7 +172,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                 children: [
                   _buildInfoChip(
                     icon: Icons.chat_bubble_outline,
-                    label: '${project.sessionCount} sessions',
+                    label: '${project.sessionCount} 个会话',
                   ),
                   const SizedBox(width: 12),
                   if (project.lastActiveAt != null)
@@ -217,11 +217,11 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     final now = DateTime.now();
     final diff = now.difference(time);
 
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inDays < 1) return '${diff.inHours}h ago';
-    if (diff.inDays == 1) return 'Yesterday';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${time.day}/${time.month}/${time.year}';
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inHours < 1) return '${diff.inMinutes}分钟前';
+    if (diff.inDays < 1) return '${diff.inHours}小时前';
+    if (diff.inDays == 1) return '昨天';
+    if (diff.inDays < 7) return '${diff.inDays}天前';
+    return '${time.year}/${time.month}/${time.day}';
   }
 }

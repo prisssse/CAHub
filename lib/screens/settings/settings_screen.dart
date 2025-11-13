@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/colors.dart';
+import '../../services/app_settings.dart';
+import '../../main.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -9,75 +11,108 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _darkMode = false;
-  bool _notifications = true;
-  String _apiEndpoint = 'http://127.0.0.1:8207';
+  late AppSettings _settings;
+  late bool _darkMode;
+  late bool _notifications;
+  late String _apiEndpoint;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    _settings = await AppSettings.load();
+    setState(() {
+      _darkMode = _settings.darkMode;
+      _notifications = _settings.notifications;
+      _apiEndpoint = _settings.apiEndpoint;
+      _isLoading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          title: const Text('设置'),
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: const Text('设置'),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildSectionTitle('Appearance'),
+          _buildSectionTitle('外观'),
           _buildSettingCard(
             child: SwitchListTile(
               title: Text(
-                'Dark Mode',
+                '深色模式',
                 style: TextStyle(
                   fontSize: 16,
                   color: AppColors.textPrimary,
                 ),
               ),
               subtitle: Text(
-                'Switch to dark theme',
+                '切换到深色主题',
                 style: TextStyle(
                   fontSize: 13,
                   color: AppColors.textSecondary,
                 ),
               ),
               value: _darkMode,
-              onChanged: (value) {
+              onChanged: (value) async {
                 setState(() => _darkMode = value);
+                await _settings.setDarkMode(value);
+                if (mounted) {
+                  MyApp.of(context)?.toggleDarkMode(value);
+                }
               },
               activeColor: AppColors.primary,
             ),
           ),
           const SizedBox(height: 24),
-          _buildSectionTitle('Notifications'),
+          _buildSectionTitle('通知'),
           _buildSettingCard(
             child: SwitchListTile(
               title: Text(
-                'Enable Notifications',
+                '启用通知',
                 style: TextStyle(
                   fontSize: 16,
                   color: AppColors.textPrimary,
                 ),
               ),
               subtitle: Text(
-                'Receive notifications for new messages',
+                '接收新消息通知',
                 style: TextStyle(
                   fontSize: 13,
                   color: AppColors.textSecondary,
                 ),
               ),
               value: _notifications,
-              onChanged: (value) {
+              onChanged: (value) async {
                 setState(() => _notifications = value);
+                await _settings.setNotifications(value);
               },
               activeColor: AppColors.primary,
             ),
           ),
           const SizedBox(height: 24),
-          _buildSectionTitle('API Configuration'),
+          _buildSectionTitle('API 配置'),
           _buildSettingCard(
             child: ListTile(
               title: Text(
-                'API Endpoint',
+                'API 地址',
                 style: TextStyle(
                   fontSize: 16,
                   color: AppColors.textPrimary,
@@ -98,13 +133,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          _buildSectionTitle('About'),
+          _buildSectionTitle('关于'),
           _buildSettingCard(
             child: Column(
               children: [
                 ListTile(
                   title: Text(
-                    'Version',
+                    '版本',
                     style: TextStyle(
                       fontSize: 16,
                       color: AppColors.textPrimary,
@@ -124,7 +159,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 ListTile(
                   title: Text(
-                    'Privacy Policy',
+                    '隐私政策',
                     style: TextStyle(
                       fontSize: 16,
                       color: AppColors.textPrimary,
@@ -145,7 +180,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 ListTile(
                   title: Text(
-                    'Terms of Service',
+                    '服务条款',
                     style: TextStyle(
                       fontSize: 16,
                       color: AppColors.textPrimary,
@@ -202,14 +237,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.cardBackground,
         title: Text(
-          'API Endpoint',
+          'API 地址',
           style: TextStyle(color: AppColors.textPrimary),
         ),
         content: TextField(
           controller: controller,
           style: TextStyle(color: AppColors.textPrimary),
           decoration: InputDecoration(
-            hintText: 'Enter API endpoint URL',
+            hintText: '输入 API 地址',
             hintStyle: TextStyle(color: AppColors.textTertiary),
             enabledBorder: OutlineInputBorder(
               borderSide: BorderSide(color: AppColors.divider),
@@ -225,17 +260,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
-              'Cancel',
+              '取消',
               style: TextStyle(color: AppColors.textSecondary),
             ),
           ),
           TextButton(
-            onPressed: () {
-              setState(() => _apiEndpoint = controller.text);
-              Navigator.pop(context);
+            onPressed: () async {
+              final newEndpoint = controller.text.trim();
+              if (newEndpoint.isNotEmpty) {
+                setState(() => _apiEndpoint = newEndpoint);
+                await _settings.setApiEndpoint(newEndpoint);
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('API 地址已保存，请重启应用以生效'),
+                      duration: Duration(seconds: 3),
+                    ),
+                  );
+                }
+              }
             },
             child: Text(
-              'Save',
+              '保存',
               style: TextStyle(color: AppColors.primary),
             ),
           ),

@@ -3,7 +3,8 @@ import '../../core/constants/colors.dart';
 import '../../models/project.dart';
 import '../../models/session.dart';
 import '../../repositories/project_repository.dart';
-import '../../repositories/mock_session_repository.dart';
+import '../../services/api_service.dart';
+import '../../repositories/api_session_repository.dart';
 import '../chat_screen.dart';
 
 class SessionListScreen extends StatefulWidget {
@@ -74,7 +75,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'No sessions found',
+                            '未找到会话',
                             style: TextStyle(
                               fontSize: 18,
                               color: AppColors.textSecondary,
@@ -106,12 +107,16 @@ class _SessionListScreenState extends State<SessionListScreen> {
       ),
       child: InkWell(
         onTap: () {
+          // Use 10.0.2.2 for Android emulator to access host machine's localhost
+          final apiService = ApiService(baseUrl: 'http://192.168.31.99:8207');
+          final sessionRepository = ApiSessionRepository(apiService);
+
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => ChatScreen(
                 session: session,
-                repository: MockSessionRepository(),
+                repository: sessionRepository,
               ),
             ),
           );
@@ -170,7 +175,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                 children: [
                   _buildInfoChip(
                     icon: Icons.message,
-                    label: '${session.messageCount} messages',
+                    label: '${session.messageCount} 条消息',
                   ),
                   const SizedBox(width: 12),
                   _buildInfoChip(
@@ -214,11 +219,11 @@ class _SessionListScreenState extends State<SessionListScreen> {
     final now = DateTime.now();
     final diff = now.difference(time);
 
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inDays < 1) return '${diff.inHours}h ago';
-    if (diff.inDays == 1) return 'Yesterday';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${time.day}/${time.month}/${time.year}';
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inHours < 1) return '${diff.inMinutes}分钟前';
+    if (diff.inDays < 1) return '${diff.inHours}小时前';
+    if (diff.inDays == 1) return '昨天';
+    if (diff.inDays < 7) return '${diff.inDays}天前';
+    return '${time.year}/${time.month}/${time.day}';
   }
 }

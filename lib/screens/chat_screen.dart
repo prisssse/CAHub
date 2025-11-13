@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../models/message.dart';
 import '../models/session.dart';
+import '../models/session_settings.dart';
 import '../repositories/session_repository.dart';
 import '../widgets/message_bubble.dart';
 import '../core/constants/colors.dart';
+import 'session_settings_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final Session session;
@@ -25,10 +27,15 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _isLoading = false;
   bool _isSending = false;
+  late SessionSettings _settings;
 
   @override
   void initState() {
     super.initState();
+    _settings = SessionSettings(
+      sessionId: widget.session.id,
+      cwd: widget.session.cwd,
+    );
     _loadMessages();
   }
 
@@ -64,6 +71,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final response = await widget.repository.sendMessage(
         sessionId: widget.session.id,
         content: text,
+        settings: _settings,
       );
       setState(() {
         _messages.add(response);
@@ -80,21 +88,37 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  void _openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SessionSettingsScreen(
+          settings: _settings,
+          onSave: (newSettings) {
+            setState(() {
+              _settings = newSettings;
+            });
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _clearMessages() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Clear Messages'),
-        content: const Text('Are you sure you want to clear all messages?'),
+        title: const Text('清除消息'),
+        content: const Text('确定要清除所有消息吗？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: const Text('取消'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('Clear'),
+            child: const Text('清除'),
           ),
         ],
       ),
@@ -142,9 +166,14 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _openSettings,
+            tooltip: '会话设置',
+          ),
+          IconButton(
             icon: const Icon(Icons.delete_outline),
             onPressed: _clearMessages,
-            tooltip: 'Clear messages',
+            tooltip: '清除消息',
           ),
         ],
       ),
@@ -184,14 +213,14 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'No messages yet',
+            '暂无消息',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AppColors.textSecondary,
                 ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Start chatting with Claude Code',
+            '开始与 Claude Code 对话',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppColors.textTertiary,
                 ),
@@ -228,7 +257,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: TextField(
                     controller: _textController,
                     decoration: const InputDecoration(
-                      hintText: 'Type a message...',
+                      hintText: '输入消息...',
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 16,

@@ -1,5 +1,6 @@
 import '../models/session.dart';
 import '../models/message.dart';
+import '../models/session_settings.dart';
 import 'session_repository.dart';
 
 class MockSessionRepository implements SessionRepository {
@@ -26,7 +27,11 @@ class MockSessionRepository implements SessionRepository {
   }
 
   @override
-  Future<Message> sendMessage({required String sessionId, required String content}) async {
+  Future<Message> sendMessage({
+    required String sessionId,
+    required String content,
+    SessionSettings? settings,
+  }) async {
     await Future.delayed(const Duration(seconds: 1));
     final response = Message.assistant('This is a mock response to: $content');
 
