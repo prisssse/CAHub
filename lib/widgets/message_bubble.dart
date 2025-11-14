@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/message.dart';
 import '../core/constants/colors.dart';
+import '../core/utils/platform_helper.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -106,6 +107,9 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: MarkdownBody(
         data: text,
+        // 必须设为 false，让外层的 SelectionArea 统一管理选择
+        // 如果设为 true，会创建独立的选择区域，导致无法跨行/跨消息选择
+        selectable: false,
         styleSheet: MarkdownStyleSheet(
           p: const TextStyle(
             color: AppColors.textPrimary,

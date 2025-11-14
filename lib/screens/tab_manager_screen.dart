@@ -1,5 +1,8 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import '../core/constants/colors.dart';
+import '../core/utils/platform_helper.dart';
 import '../repositories/project_repository.dart';
 import 'home_screen.dart';
 
@@ -184,40 +187,84 @@ class _TabManagerScreenState extends State<TabManagerScreen>
             child: Row(
               children: [
                 Expanded(
-                  child: TabBar(
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.start,
-                    tabs: _tabs.asMap().entries.map((entry) {
-                      final index = entry.key;
-                      final tab = entry.value;
-                      return Tab(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              tab.type == TabType.home
-                                  ? Icons.home_outlined
-                                  : Icons.chat_outlined,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              tab.title.length > 12
-                                  ? '${tab.title.substring(0, 12)}...'
-                                  : tab.title,
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                            const SizedBox(width: 6),
-                            InkWell(
-                              onTap: () => _closeTab(index),
-                              child: const Icon(Icons.close, size: 14),
-                            ),
-                          ],
+                  child: PlatformHelper.showTabBarScrollbar
+                      ? ScrollConfiguration(
+                          behavior: ScrollConfiguration.of(context).copyWith(
+                            dragDevices: {
+                              PointerDeviceKind.touch,
+                              PointerDeviceKind.mouse,
+                            },
+                            scrollbars: true,
+                          ),
+                          child: TabBar(
+                            controller: _tabController,
+                            isScrollable: true,
+                            tabAlignment: TabAlignment.start,
+                            tabs: _tabs.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final tab = entry.value;
+                              return Tab(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      tab.type == TabType.home
+                                          ? Icons.home_outlined
+                                          : Icons.chat_outlined,
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      tab.title.length > 12
+                                          ? '${tab.title.substring(0, 12)}...'
+                                          : tab.title,
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    InkWell(
+                                      onTap: () => _closeTab(index),
+                                      child: const Icon(Icons.close, size: 14),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        )
+                      : TabBar(
+                          controller: _tabController,
+                          isScrollable: true,
+                          tabAlignment: TabAlignment.start,
+                          tabs: _tabs.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final tab = entry.value;
+                            return Tab(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    tab.type == TabType.home
+                                        ? Icons.home_outlined
+                                        : Icons.chat_outlined,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    tab.title.length > 12
+                                        ? '${tab.title.substring(0, 12)}...'
+                                        : tab.title,
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  InkWell(
+                                    onTap: () => _closeTab(index),
+                                    child: const Icon(Icons.close, size: 14),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
                         ),
-                      );
-                    }).toList(),
-                  ),
                 ),
                 Container(
                   decoration: BoxDecoration(

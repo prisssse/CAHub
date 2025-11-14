@@ -7,6 +7,7 @@ import '../models/session_settings.dart';
 import '../repositories/session_repository.dart';
 import '../widgets/message_bubble.dart';
 import '../core/constants/colors.dart';
+import '../core/utils/platform_helper.dart';
 import 'session_settings_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -362,17 +363,34 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? _buildEmptyState()
                 : Stack(
                     children: [
-                      NotificationListener<ScrollNotification>(
-                        onNotification: _handleScrollNotification,
-                        child: ListView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          itemCount: _messages.length,
-                          itemBuilder: (context, index) {
-                            return MessageBubble(message: _messages[index]);
-                          },
-                        ),
-                      ),
+                      // 桌面版使用SelectionArea包装，允许自由选择文本
+                      PlatformHelper.shouldEnableTextSelection
+                          ? SelectionArea(
+                              child: NotificationListener<ScrollNotification>(
+                                onNotification: _handleScrollNotification,
+                                child: ListView.builder(
+                                  controller: _scrollController,
+                                  physics: PlatformHelper.getScrollPhysics(),
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  itemCount: _messages.length,
+                                  itemBuilder: (context, index) {
+                                    return MessageBubble(message: _messages[index]);
+                                  },
+                                ),
+                              ),
+                            )
+                          : NotificationListener<ScrollNotification>(
+                              onNotification: _handleScrollNotification,
+                              child: ListView.builder(
+                                controller: _scrollController,
+                                physics: PlatformHelper.getScrollPhysics(),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                itemCount: _messages.length,
+                                itemBuilder: (context, index) {
+                                  return MessageBubble(message: _messages[index]);
+                                },
+                              ),
+                            ),
                       // 滚动到底部按钮
                       if (_userScrolling) _buildScrollToBottomButton(),
                     ],
