@@ -8,10 +8,22 @@ import '../../services/api_service.dart';
 
 class ProjectListScreen extends StatefulWidget {
   final ProjectRepository repository;
+  final Function({
+    required String sessionId,
+    required String sessionName,
+    required Widget chatWidget,
+  })? onOpenChat;
+  final Function({
+    required String id,
+    required String title,
+    required Widget content,
+  })? onNavigate;
 
   const ProjectListScreen({
     super.key,
     required this.repository,
+    this.onOpenChat,
+    this.onNavigate,
   });
 
   @override
@@ -302,15 +314,32 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
       ),
       child: InkWell(
         onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => SessionListScreen(
+          if (widget.onNavigate != null) {
+            // 在当前标签页中打开项目的会话列表
+            widget.onNavigate!(
+              id: 'project_${project.id}',
+              title: project.name,
+              content: SessionListScreen(
                 project: project,
                 repository: widget.repository,
+                onOpenChat: widget.onOpenChat,
+                onNavigate: widget.onNavigate,
               ),
-            ),
-          );
+            );
+          } else {
+            // 降级到 Navigator（用于独立测试）
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => SessionListScreen(
+                  project: project,
+                  repository: widget.repository,
+                  onOpenChat: widget.onOpenChat,
+                  onNavigate: widget.onNavigate,
+                ),
+              ),
+            );
+          }
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(

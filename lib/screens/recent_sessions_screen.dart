@@ -2,14 +2,22 @@ import 'package:flutter/material.dart';
 import '../core/constants/colors.dart';
 import '../models/session.dart';
 import '../repositories/project_repository.dart';
+import '../repositories/api_session_repository.dart';
 import 'tab_navigator_screen.dart';
+import 'chat_screen.dart';
 
 class RecentSessionsScreen extends StatefulWidget {
   final ProjectRepository repository;
+  final Function({
+    required String sessionId,
+    required String sessionName,
+    required Widget chatWidget,
+  })? onOpenChat;
 
   const RecentSessionsScreen({
     super.key,
     required this.repository,
+    this.onOpenChat,
   });
 
   @override
@@ -52,15 +60,31 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
   }
 
   void _openSession(Session session) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TabNavigatorScreen(
-          repository: widget.repository,
-          initialSession: session,
+    if (widget.onOpenChat != null) {
+      // 使用回调在新标签页中打开
+      final apiService = widget.repository.apiService;
+      final sessionRepository = ApiSessionRepository(apiService);
+
+      widget.onOpenChat!(
+        sessionId: session.id,
+        sessionName: session.name,
+        chatWidget: ChatScreen(
+          session: session,
+          repository: sessionRepository,
         ),
-      ),
-    ).then((_) => _loadRecentSessions());
+      );
+    } else {
+      // 降级到导航方式（用于独立测试）
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TabNavigatorScreen(
+            repository: widget.repository,
+            initialSession: session,
+          ),
+        ),
+      ).then((_) => _loadRecentSessions());
+    }
   }
 
   @override

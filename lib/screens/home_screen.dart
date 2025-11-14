@@ -6,10 +6,22 @@ import 'recent_sessions_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final ProjectRepository repository;
+  final Function({
+    required String sessionId,
+    required String sessionName,
+    required Widget chatWidget,
+  })? onOpenChat;
+  final Function({
+    required String id,
+    required String title,
+    required Widget content,
+  })? onNavigate;
 
   const HomeScreen({
     super.key,
     required this.repository,
+    this.onOpenChat,
+    this.onNavigate,
   });
 
   @override
@@ -25,8 +37,15 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _screens = [
-      ProjectListScreen(repository: widget.repository),
-      RecentSessionsScreen(repository: widget.repository),
+      ProjectListScreen(
+        repository: widget.repository,
+        onOpenChat: widget.onOpenChat,
+        onNavigate: widget.onNavigate,
+      ),
+      RecentSessionsScreen(
+        repository: widget.repository,
+        onOpenChat: widget.onOpenChat,
+      ),
     ];
   }
 

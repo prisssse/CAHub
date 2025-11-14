@@ -13,6 +13,16 @@ class SessionListScreen extends StatefulWidget {
   final ProjectRepository repository;
   final bool isSelectMode;
   final Function(Session)? onSessionSelected;
+  final Function({
+    required String sessionId,
+    required String sessionName,
+    required Widget chatWidget,
+  })? onOpenChat;
+  final Function({
+    required String id,
+    required String title,
+    required Widget content,
+  })? onNavigate;
 
   const SessionListScreen({
     super.key,
@@ -20,6 +30,8 @@ class SessionListScreen extends StatefulWidget {
     required this.repository,
     this.isSelectMode = false,
     this.onSessionSelected,
+    this.onOpenChat,
+    this.onNavigate,
   });
 
   @override
@@ -273,16 +285,31 @@ class _SessionListScreenState extends State<SessionListScreen> {
             return;
           }
 
-          // 否则打开标签页管理器
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => TabNavigatorScreen(
-                repository: widget.repository,
-                initialSession: session,
+          // 如果有 onOpenChat 回调，在新标签页中打开
+          if (widget.onOpenChat != null) {
+            final apiService = ApiService(baseUrl: 'http://192.168.31.99:8207');
+            final sessionRepository = ApiSessionRepository(apiService);
+
+            widget.onOpenChat!(
+              sessionId: session.id,
+              sessionName: session.name,
+              chatWidget: ChatScreen(
+                session: session,
+                repository: sessionRepository,
               ),
-            ),
-          ).then((_) => _loadSessions());
+            );
+          } else {
+            // 降级到导航方式
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => TabNavigatorScreen(
+                  repository: widget.repository,
+                  initialSession: session,
+                ),
+              ),
+            ).then((_) => _loadSessions());
+          }
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
@@ -414,6 +441,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                           repository: widget.repository,
                           isSelectMode: true,
                           onSessionSelected: widget.onSessionSelected,
+                          onNavigate: widget.onNavigate,
                         ),
                       ),
                     );
