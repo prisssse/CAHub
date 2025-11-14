@@ -1,8 +1,18 @@
+import 'dart:convert';
+
 import '../models/session.dart';
 import '../models/message.dart';
 import '../models/session_settings.dart';
 import '../services/api_service.dart';
 import 'session_repository.dart';
+
+// Helper class to track message building state
+class _MessageBuildState {
+  final contentBlockTypes = <int, String>{};
+  final textBlocksBuilder = <int, StringBuffer>{};
+  final toolUseBlocks = <int, Map<String, dynamic>>{};
+  bool finalized = false;
+}
 
 class ApiSessionRepository implements SessionRepository {
   final ApiService _apiService;
@@ -220,9 +230,9 @@ class ApiSessionRepository implements SessionRepository {
     required String content,
     SessionSettings? settings,
   }) async* {
-    final messageId = '${sessionId}_${DateTime.now().millisecondsSinceEpoch}';
-    final contentBlocksBuilder = <int, StringBuffer>{}; // index -> accumulated text
-    List<ContentBlock> latestContentBlocks = [];
+    // Track multiple messages by their UUIDs (for multi-turn)
+    final messageStates = <String, _MessageBuildState>{}; // uuid -> build state
+    String? currentMessageUuid;
 
     try {
       await for (var event in _apiService.chat(
@@ -232,63 +242,148 @@ class ApiSessionRepository implements SessionRepository {
       )) {
         final eventType = event['event_type'];
 
-        if (eventType == 'stream_event') {
-          // Handle real streaming events
-          final streamEvent = event['event'];
-          if (streamEvent == null) continue;
+        // Check if this is a message event with stream_event payload
+        bool isStreamEvent = false;
+        Map<String, dynamic>? streamEvent;
+        String? eventUuid;
+
+        if (eventType == 'message') {
+          final payload = event['payload'];
+          if (payload != null && payload['type'] == 'stream_event') {
+            isStreamEvent = true;
+            streamEvent = payload['event'] as Map<String, dynamic>?;
+            eventUuid = payload['uuid'] as String?;
+          }
+        }
+
+        if (isStreamEvent && streamEvent != null) {
+          // Use UUID as message identifier
+          if (eventUuid != null) {
+            currentMessageUuid = eventUuid;
+            if (!messageStates.containsKey(eventUuid)) {
+              messageStates[eventUuid] = _MessageBuildState();
+            }
+          }
+
+          final state = currentMessageUuid != null ? messageStates[currentMessageUuid!] : null;
+          if (state == null) continue;
 
           final streamEventType = streamEvent['type'];
 
           if (streamEventType == 'content_block_start') {
             // New content block started
             final index = streamEvent['index'] as int?;
-            if (index != null) {
-              contentBlocksBuilder[index] = StringBuffer();
+            final contentBlock = streamEvent['content_block'];
+
+            if (index != null && contentBlock != null) {
+              final blockType = contentBlock['type'] as String?;
+              state.contentBlockTypes[index] = blockType ?? 'text';
+
+              if (blockType == 'text') {
+                state.textBlocksBuilder[index] = StringBuffer();
+                final text = contentBlock['text'] as String?;
+                if (text != null) {
+                  state.textBlocksBuilder[index]!.write(text);
+                }
+              } else if (blockType == 'tool_use') {
+                state.toolUseBlocks[index] = {
+                  'id': contentBlock['id'],
+                  'name': contentBlock['name'],
+                  'input': {},
+                };
+              }
             }
           } else if (streamEventType == 'content_block_delta') {
             // Incremental content update
             final index = streamEvent['index'] as int? ?? 0;
             final delta = streamEvent['delta'];
 
-            if (delta != null && delta['type'] == 'text_delta') {
-              final text = delta['text'] as String?;
-              if (text != null) {
-                // Accumulate text for this block
-                if (!contentBlocksBuilder.containsKey(index)) {
-                  contentBlocksBuilder[index] = StringBuffer();
-                }
-                contentBlocksBuilder[index]!.write(text);
+            if (delta != null) {
+              final deltaType = delta['type'] as String?;
 
-                // Build current content blocks from accumulated text
-                latestContentBlocks = [];
-                for (var i = 0; i <= contentBlocksBuilder.keys.reduce((a, b) => a > b ? a : b); i++) {
-                  if (contentBlocksBuilder.containsKey(i)) {
-                    latestContentBlocks.add(ContentBlock(
-                      type: ContentBlockType.text,
-                      text: contentBlocksBuilder[i]!.toString(),
-                    ));
+              if (deltaType == 'text_delta') {
+                final text = delta['text'] as String?;
+                if (text != null) {
+                  if (!state.textBlocksBuilder.containsKey(index)) {
+                    state.textBlocksBuilder[index] = StringBuffer();
+                    state.contentBlockTypes[index] = 'text';
                   }
+                  state.textBlocksBuilder[index]!.write(text);
                 }
+              } else if (deltaType == 'input_json_delta') {
+                final jsonDelta = delta['partial_json'] as String?;
+                if (jsonDelta != null && state.toolUseBlocks.containsKey(index)) {
+                  // Accumulate JSON for tool input
+                  state.toolUseBlocks[index]!['input_json'] =
+                      (state.toolUseBlocks[index]!['input_json'] ?? '') + jsonDelta;
+                }
+              }
+            }
 
-                // Emit partial message with current state
+            // Rebuild content blocks from current state
+            final blocks = _buildContentBlocks(
+              state.contentBlockTypes,
+              state.textBlocksBuilder,
+              state.toolUseBlocks,
+            );
+
+            // Emit partial message with current state
+            if (blocks.isNotEmpty) {
+              yield MessageStreamEvent(
+                partialMessage: Message.fromBlocks(
+                  id: currentMessageUuid!,
+                  role: MessageRole.assistant,
+                  blocks: List.from(blocks),
+                ),
+              );
+            }
+          } else if (streamEventType == 'content_block_stop') {
+            // Content block completed - finalize any pending tool inputs
+            final index = streamEvent['index'] as int?;
+            if (index != null && state.toolUseBlocks.containsKey(index)) {
+              final inputJson = state.toolUseBlocks[index]!['input_json'] as String?;
+              if (inputJson != null) {
+                try {
+                  state.toolUseBlocks[index]!['input'] =
+                      json.decode(inputJson) as Map<String, dynamic>;
+                } catch (e) {
+                  // Keep empty input if JSON parsing fails
+                }
+              }
+            }
+          } else if (streamEventType == 'message_stop') {
+            // Message completed - emit final version
+            if (currentMessageUuid != null && state != null) {
+              final blocks = _buildContentBlocks(
+                state.contentBlockTypes,
+                state.textBlocksBuilder,
+                state.toolUseBlocks,
+              );
+
+              if (blocks.isNotEmpty) {
                 yield MessageStreamEvent(
-                  partialMessage: Message.fromBlocks(
-                    id: messageId,
+                  finalMessage: Message.fromBlocks(
+                    id: currentMessageUuid!,
                     role: MessageRole.assistant,
-                    blocks: List.from(latestContentBlocks),
+                    blocks: blocks,
                   ),
                 );
               }
             }
-          } else if (streamEventType == 'content_block_stop') {
-            // Content block completed
-            // Just keep the accumulated content
           }
         } else if (eventType == 'message') {
           final payload = event['payload'];
+
+          // Skip stream_event payloads (already handled above)
+          if (payload != null && payload['type'] == 'stream_event') {
+            continue;
+          }
+
           if (payload != null && payload['type'] == 'assistant') {
             // Complete message received (fallback for non-streaming)
+            final messageId = payload['id'] as String? ?? '${sessionId}_${DateTime.now().millisecondsSinceEpoch}';
             final messageContent = payload['content'];
+
             if (messageContent is List) {
               final currentBlocks = <ContentBlock>[];
               for (var blockJson in messageContent) {
@@ -303,13 +398,11 @@ class ApiSessionRepository implements SessionRepository {
               }
 
               if (currentBlocks.isNotEmpty) {
-                latestContentBlocks = currentBlocks;
-
                 yield MessageStreamEvent(
                   partialMessage: Message.fromBlocks(
                     id: messageId,
                     role: MessageRole.assistant,
-                    blocks: List.from(latestContentBlocks),
+                    blocks: List.from(currentBlocks),
                   ),
                 );
               }
@@ -317,31 +410,36 @@ class ApiSessionRepository implements SessionRepository {
           } else if (payload != null && payload['type'] == 'result') {
             // ResultMessage: 提取统计信息
             final stats = MessageStats.fromResultPayload(payload);
-            final result = payload['result'] as String?;
-            if (result != null && result.isNotEmpty && latestContentBlocks.isEmpty) {
-              latestContentBlocks = [
-                ContentBlock(
-                  type: ContentBlockType.text,
-                  text: result,
-                ),
-              ];
-            }
             // 发送统计信息
             yield MessageStreamEvent(
               stats: stats,
             );
           }
         } else if (eventType == 'done') {
-          // Stream completed
-          final finalMessage = Message.fromBlocks(
-            id: messageId,
-            role: MessageRole.assistant,
-            blocks: latestContentBlocks,
-          );
-          yield MessageStreamEvent(
-            finalMessage: finalMessage,
-            isDone: true,
-          );
+          // Stream completed - emit final messages for any remaining states
+          for (final entry in messageStates.entries) {
+            final uuid = entry.key;
+            final state = entry.value;
+
+            final blocks = _buildContentBlocks(
+              state.contentBlockTypes,
+              state.textBlocksBuilder,
+              state.toolUseBlocks,
+            );
+
+            if (blocks.isNotEmpty && !state.finalized) {
+              yield MessageStreamEvent(
+                finalMessage: Message.fromBlocks(
+                  id: uuid,
+                  role: MessageRole.assistant,
+                  blocks: blocks,
+                ),
+              );
+              state.finalized = true;
+            }
+          }
+
+          yield MessageStreamEvent(isDone: true);
           return;
         } else if (eventType == 'error') {
           yield MessageStreamEvent(
@@ -353,22 +451,71 @@ class ApiSessionRepository implements SessionRepository {
       }
 
       // Fallback: if stream ends without 'done' event
-      if (latestContentBlocks.isNotEmpty) {
-        yield MessageStreamEvent(
-          finalMessage: Message.fromBlocks(
-            id: messageId,
-            role: MessageRole.assistant,
-            blocks: latestContentBlocks,
-          ),
-          isDone: true,
+      for (final entry in messageStates.entries) {
+        final uuid = entry.key;
+        final state = entry.value;
+
+        final blocks = _buildContentBlocks(
+          state.contentBlockTypes,
+          state.textBlocksBuilder,
+          state.toolUseBlocks,
         );
+
+        if (blocks.isNotEmpty && !state.finalized) {
+          yield MessageStreamEvent(
+            finalMessage: Message.fromBlocks(
+              id: uuid,
+              role: MessageRole.assistant,
+              blocks: blocks,
+            ),
+          );
+        }
       }
+
+      yield MessageStreamEvent(isDone: true);
     } catch (e) {
       yield MessageStreamEvent(
         error: e.toString(),
         isDone: true,
       );
     }
+  }
+
+  List<ContentBlock> _buildContentBlocks(
+    Map<int, String> types,
+    Map<int, StringBuffer> textBlocks,
+    Map<int, Map<String, dynamic>> toolBlocks,
+  ) {
+    final blocks = <ContentBlock>[];
+
+    // Get all indices and sort them
+    final allIndices = <int>{};
+    allIndices.addAll(types.keys);
+    final sortedIndices = allIndices.toList()..sort();
+
+    for (final index in sortedIndices) {
+      final blockType = types[index];
+
+      if (blockType == 'text' && textBlocks.containsKey(index)) {
+        final text = textBlocks[index]!.toString();
+        if (text.isNotEmpty) {
+          blocks.add(ContentBlock(
+            type: ContentBlockType.text,
+            text: text,
+          ));
+        }
+      } else if (blockType == 'tool_use' && toolBlocks.containsKey(index)) {
+        final toolBlock = toolBlocks[index]!;
+        blocks.add(ContentBlock(
+          type: ContentBlockType.toolUse,
+          id: toolBlock['id'] as String?,
+          name: toolBlock['name'] as String?,
+          input: toolBlock['input'] as Map<String, dynamic>?,
+        ));
+      }
+    }
+
+    return blocks;
   }
 
   String _extractTextContent(dynamic content) {

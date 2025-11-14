@@ -69,9 +69,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.clear();
     _scrollToBottom();
 
-    // Placeholder for streaming assistant message
-    Message? currentAssistantMessage;
-    int assistantMessageIndex = -1;
+    // Track current assistant message by ID (for multi-turn support)
+    final assistantMessagesByIdIndex = <String, int>{}; // message.id -> index in _messages
 
     try {
       await for (var event in widget.repository.sendMessageStream(
@@ -98,41 +97,48 @@ class _ChatScreenState extends State<ChatScreen> {
         }
 
         if (event.partialMessage != null) {
-          // Update the assistant message in real-time
-          if (currentAssistantMessage == null) {
-            // First chunk: add new message
-            currentAssistantMessage = event.partialMessage!;
-            setState(() {
-              _messages.add(currentAssistantMessage!);
-              assistantMessageIndex = _messages.length - 1;
-            });
-          } else {
-            // Subsequent chunks: update existing message
-            // 安全检查：确保索引有效且指向助手消息
-            if (assistantMessageIndex >= 0 &&
-                assistantMessageIndex < _messages.length &&
-                _messages[assistantMessageIndex].role == MessageRole.assistant) {
-              currentAssistantMessage = event.partialMessage!;
+          final partial = event.partialMessage!;
+          final messageId = partial.id;
+
+          if (assistantMessagesByIdIndex.containsKey(messageId)) {
+            // Update existing message
+            final index = assistantMessagesByIdIndex[messageId]!;
+            if (index >= 0 &&
+                index < _messages.length &&
+                _messages[index].role == MessageRole.assistant) {
               setState(() {
-                _messages[assistantMessageIndex] = currentAssistantMessage!;
+                _messages[index] = partial;
               });
             }
+          } else {
+            // Add new assistant message
+            setState(() {
+              _messages.add(partial);
+              assistantMessagesByIdIndex[messageId] = _messages.length - 1;
+            });
           }
           _scrollToBottom();
         }
 
         if (event.finalMessage != null) {
-          // Replace with final message
-          if (assistantMessageIndex >= 0 &&
-              assistantMessageIndex < _messages.length &&
-              _messages[assistantMessageIndex].role == MessageRole.assistant) {
-            setState(() {
-              _messages[assistantMessageIndex] = event.finalMessage!;
-            });
-          } else if (currentAssistantMessage == null) {
+          final final_ = event.finalMessage!;
+          final messageId = final_.id;
+
+          if (assistantMessagesByIdIndex.containsKey(messageId)) {
+            // Replace with final message
+            final index = assistantMessagesByIdIndex[messageId]!;
+            if (index >= 0 &&
+                index < _messages.length &&
+                _messages[index].role == MessageRole.assistant) {
+              setState(() {
+                _messages[index] = final_;
+              });
+            }
+          } else {
             // Fallback: add final message if no partial was received
             setState(() {
-              _messages.add(event.finalMessage!);
+              _messages.add(final_);
+              assistantMessagesByIdIndex[messageId] = _messages.length - 1;
             });
           }
           _scrollToBottom();
