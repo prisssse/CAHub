@@ -1,14 +1,36 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/session_settings.dart';
+import 'auth_service.dart';
 
 class ApiService {
   final String baseUrl;
+  final AuthService? authService;
 
-  ApiService({this.baseUrl = 'http://127.0.0.1:8207'});
+  ApiService({
+    this.baseUrl = 'http://127.0.0.1:8207',
+    this.authService,
+  });
+
+  Map<String, String> _getHeaders() {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+
+    // Add Basic Auth header if available
+    final authHeader = authService?.basicAuthHeader;
+    if (authHeader != null) {
+      headers['Authorization'] = authHeader;
+    }
+
+    return headers;
+  }
 
   Future<List<Map<String, dynamic>>> getSessions() async {
-    final response = await http.get(Uri.parse('$baseUrl/sessions'));
+    final response = await http.get(
+      Uri.parse('$baseUrl/sessions'),
+      headers: _getHeaders(),
+    );
 
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
@@ -19,7 +41,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getSession(String sessionId) async {
-    final response = await http.get(Uri.parse('$baseUrl/sessions/$sessionId'));
+    final response = await http.get(
+      Uri.parse('$baseUrl/sessions/$sessionId'),
+      headers: _getHeaders(),
+    );
 
     if (response.statusCode == 200) {
       return json.decode(response.body);
@@ -55,7 +80,7 @@ class ApiService {
     }
 
     final request = http.Request('POST', Uri.parse('$baseUrl/chat'));
-    request.headers['Content-Type'] = 'application/json';
+    request.headers.addAll(_getHeaders());
     request.body = json.encode(body);
 
     final streamedResponse = await request.send();
@@ -116,7 +141,7 @@ class ApiService {
 
     final response = await http.post(
       Uri.parse('$baseUrl/sessions/load'),
-      headers: {'Content-Type': 'application/json'},
+      headers: _getHeaders(),
       body: json.encode(body),
     );
 

@@ -16,12 +16,14 @@ class HomeScreen extends StatefulWidget {
     required String title,
     required Widget content,
   })? onNavigate;
+  final VoidCallback? onLogout;
 
   const HomeScreen({
     super.key,
     required this.repository,
     this.onOpenChat,
     this.onNavigate,
+    this.onLogout,
   });
 
   @override
@@ -41,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
         repository: widget.repository,
         onOpenChat: widget.onOpenChat,
         onNavigate: widget.onNavigate,
+        onLogout: widget.onLogout,
       ),
       RecentSessionsScreen(
         repository: widget.repository,

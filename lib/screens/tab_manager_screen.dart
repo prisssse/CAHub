@@ -25,10 +25,12 @@ class TabInfo {
 
 class TabManagerScreen extends StatefulWidget {
   final ProjectRepository repository;
+  final VoidCallback? onLogout;
 
   const TabManagerScreen({
     super.key,
     required this.repository,
+    this.onLogout,
   });
 
   @override
@@ -62,6 +64,7 @@ class _TabManagerScreenState extends State<TabManagerScreen>
         repository: widget.repository,
         onOpenChat: _openChatInCurrentTab,
         onNavigate: _replaceCurrentTab,
+        onLogout: widget.onLogout,
       ),
     );
 
@@ -125,7 +128,12 @@ class _TabManagerScreenState extends State<TabManagerScreen>
 
   void _closeTab(int index) {
     if (_tabs.length == 1) {
-      // 最后一个标签，退出应用或返回
+      // 最后一个标签，关闭后回到主页
+      setState(() {
+        _tabs.removeAt(index);
+      });
+      // 添加一个新的主页标签
+      _addHomeTab();
       return;
     }
 

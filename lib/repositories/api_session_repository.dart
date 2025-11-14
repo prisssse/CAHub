@@ -227,8 +227,9 @@ class ApiSessionRepository implements SessionRepository {
 
   @override
   Stream<MessageStreamEvent> sendMessageStream({
-    required String sessionId,
+    String? sessionId, // 可选，如果为null则创建新session
     required String content,
+    String? cwd, // 工作目录，创建新session时必需
     SessionSettings? settings,
   }) async* {
     // Track multiple messages by their message IDs (for multi-turn)
@@ -239,9 +240,11 @@ class ApiSessionRepository implements SessionRepository {
       await for (var event in _apiService.chat(
         sessionId: sessionId,
         message: content,
+        cwd: cwd,
         settings: settings,
       )) {
         final eventType = event['event_type'];
+        print('DEBUG SSE: Received event type: $eventType');
 
         // Check if this is a message event with stream_event payload
         bool isStreamEvent = false;
@@ -249,9 +252,11 @@ class ApiSessionRepository implements SessionRepository {
 
         if (eventType == 'message') {
           final payload = event['payload'];
+          print('DEBUG SSE: Message payload type: ${payload?['type']}');
           if (payload != null && payload['type'] == 'stream_event') {
             isStreamEvent = true;
             streamEvent = payload['event'] as Map<String, dynamic>?;
+            print('DEBUG SSE: Stream event type: ${streamEvent?['type']}');
           }
         }
 
@@ -304,12 +309,14 @@ class ApiSessionRepository implements SessionRepository {
             // Incremental content update
             final index = streamEvent['index'] as int? ?? 0;
             final delta = streamEvent['delta'];
+            print('DEBUG SSE: content_block_delta at index $index, delta type: ${delta?['type']}');
 
             if (delta != null) {
               final deltaType = delta['type'] as String?;
 
               if (deltaType == 'text_delta') {
                 final text = delta['text'] as String?;
+                print('DEBUG SSE: text_delta: "$text"');
                 if (text != null) {
                   if (!state.textBlocksBuilder.containsKey(index)) {
                     state.textBlocksBuilder[index] = StringBuffer();
@@ -337,6 +344,7 @@ class ApiSessionRepository implements SessionRepository {
 
             // Emit partial message with current state
             if (blocks.isNotEmpty) {
+              print('DEBUG SSE: Emitting partialMessage with ${blocks.length} blocks');
               yield MessageStreamEvent(
                 partialMessage: Message.fromBlocks(
                   id: currentMessageId!,

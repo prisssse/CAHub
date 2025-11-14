@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/colors.dart';
 import '../../models/project.dart';
+import '../../models/session.dart';
 import '../../repositories/project_repository.dart';
+import '../../repositories/api_session_repository.dart';
 import '../sessions/session_list_screen.dart';
 import '../settings/settings_screen.dart';
+import '../chat_screen.dart';
 import '../../services/api_service.dart';
 
 class ProjectListScreen extends StatefulWidget {
@@ -18,12 +21,14 @@ class ProjectListScreen extends StatefulWidget {
     required String title,
     required Widget content,
   })? onNavigate;
+  final VoidCallback? onLogout;
 
   const ProjectListScreen({
     super.key,
     required this.repository,
     this.onOpenChat,
     this.onNavigate,
+    this.onLogout,
   });
 
   @override
@@ -112,9 +117,8 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
 
   Future<void> _addNewProject() async {
     final pathController = TextEditingController(text: 'C:\\Users');
-    final messageController = TextEditingController();
 
-    final result = await showDialog<Map<String, String>>(
+    final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('添加项目'),
@@ -128,14 +132,13 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                 hintText: '输入项目目录路径',
               ),
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: messageController,
-              decoration: const InputDecoration(
-                labelText: '第一条消息',
-                hintText: '输入你想问的问题',
+            const SizedBox(height: 12),
+            Text(
+              '创建后将直接进入对话界面',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
               ),
-              maxLines: 3,
             ),
           ],
         ),
@@ -146,12 +149,8 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
           ),
           TextButton(
             onPressed: () {
-              if (pathController.text.trim().isNotEmpty &&
-                  messageController.text.trim().isNotEmpty) {
-                Navigator.pop(context, {
-                  'path': pathController.text.trim(),
-                  'message': messageController.text.trim(),
-                });
+              if (pathController.text.trim().isNotEmpty) {
+                Navigator.pop(context, pathController.text.trim());
               }
             },
             child: Text('创建', style: TextStyle(color: AppColors.primary)),
@@ -161,7 +160,47 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     );
 
     if (result != null && mounted) {
-      _startNewProjectSession(result['path']!, result['message']!);
+      _openNewProjectChat(result);
+    }
+  }
+
+  void _openNewProjectChat(String cwd) {
+    // 创建一个临时session（没有id，表示尚未创建）
+    final tempSession = Session(
+      id: '', // 空id表示还没有创建session
+      projectId: cwd,
+      title: '新对话',
+      name: '新对话',
+      cwd: cwd,
+      messageCount: 0,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    final apiService = widget.repository.apiService;
+    final sessionRepository = ApiSessionRepository(apiService);
+
+    if (widget.onOpenChat != null) {
+      // 使用回调在新标签页打开
+      widget.onOpenChat!(
+        sessionId: 'new_${DateTime.now().millisecondsSinceEpoch}',
+        sessionName: '新对话 - ${cwd.split('\\').last}',
+        chatWidget: ChatScreen(
+          session: tempSession,
+          repository: sessionRepository,
+        ),
+      );
+    } else {
+      // 降级到导航方式
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            session: tempSession,
+            repository: sessionRepository,
+          ),
+        ),
+      ).then((_) => _loadProjects());
     }
   }
 
@@ -254,7 +293,9 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const SettingsScreen(),
+                  builder: (_) => SettingsScreen(
+                    onLogout: widget.onLogout,
+                  ),
                 ),
               );
             },

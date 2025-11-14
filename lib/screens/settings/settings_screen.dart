@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/colors.dart';
+import '../../services/auth_service.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final VoidCallback? onLogout;
+
+  const SettingsScreen({
+    super.key,
+    this.onLogout,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -30,20 +36,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 '深色模式',
                 style: TextStyle(
                   fontSize: 16,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              subtitle: Text(
-                '切换到深色主题',
-                style: TextStyle(
-                  fontSize: 13,
                   color: AppColors.textSecondary,
                 ),
               ),
+              subtitle: Text(
+                '功能开发中...',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textTertiary,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
               value: _darkMode,
-              onChanged: (value) {
-                setState(() => _darkMode = value);
-              },
+              onChanged: null, // 禁用开关
               activeColor: AppColors.primary,
             ),
           ),
@@ -55,20 +60,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 '启用通知',
                 style: TextStyle(
                   fontSize: 16,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              subtitle: Text(
-                '接收新消息通知',
-                style: TextStyle(
-                  fontSize: 13,
                   color: AppColors.textSecondary,
                 ),
               ),
+              subtitle: Text(
+                '功能开发中...',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textTertiary,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
               value: _notifications,
-              onChanged: (value) {
-                setState(() => _notifications = value);
-              },
+              onChanged: null, // 禁用开关
               activeColor: AppColors.primary,
             ),
           ),
@@ -127,17 +131,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     '隐私政策',
                     style: TextStyle(
                       fontSize: 16,
-                      color: AppColors.textPrimary,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '功能开发中...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textTertiary,
+                      fontStyle: FontStyle.italic,
                     ),
                   ),
                   trailing: Icon(
                     Icons.arrow_forward_ios,
                     size: 16,
-                    color: AppColors.textSecondary,
+                    color: AppColors.textTertiary,
                   ),
-                  onTap: () {
-                    // TODO: Show privacy policy
-                  },
+                  onTap: null, // 禁用
                 ),
                 Divider(
                   height: 1,
@@ -148,24 +158,105 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     '服务条款',
                     style: TextStyle(
                       fontSize: 16,
-                      color: AppColors.textPrimary,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '功能开发中...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textTertiary,
+                      fontStyle: FontStyle.italic,
                     ),
                   ),
                   trailing: Icon(
                     Icons.arrow_forward_ios,
                     size: 16,
-                    color: AppColors.textSecondary,
+                    color: AppColors.textTertiary,
                   ),
-                  onTap: () {
-                    // TODO: Show terms of service
-                  },
+                  onTap: null, // 禁用
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          _buildSectionTitle('账户'),
+          _buildSettingCard(
+            child: ListTile(
+              leading: Icon(
+                Icons.logout,
+                color: AppColors.error,
+              ),
+              title: Text(
+                '退出登录',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: AppColors.error,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              onTap: () => _handleLogout(),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _handleLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.cardBackground,
+        title: Text(
+          '确认退出',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: Text(
+          '确定要退出登录吗？',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              '取消',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              '退出',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final authService = await AuthService.getInstance();
+        await authService.logout();
+
+        if (mounted) {
+          // 关闭设置页面
+          Navigator.pop(context);
+          // 调用回调通知父组件
+          widget.onLogout?.call();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('退出失败: $e'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
+    }
   }
 
   Widget _buildSectionTitle(String title) {

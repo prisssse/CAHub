@@ -33,10 +33,16 @@ class _ChatScreenState extends State<ChatScreen> {
   MessageStats? _lastMessageStats; // 最后一条消息的统计信息
   bool _showStats = false; // 是否显示统计信息
   bool _userScrolling = false; // 用户是否正在手动滚动
+  late Session _currentSession; // 当前session，可能在第一次发送消息时更新
+
+  // 节流相关 - 优化流式传输UI更新
+  DateTime? _lastUpdateTime;
+  bool _pendingUpdate = false;
 
   @override
   void initState() {
     super.initState();
+    _currentSession = widget.session; // 初始化为widget的session
     _settings = SessionSettings(
       sessionId: widget.session.id,
       cwd: widget.session.cwd,
@@ -57,31 +63,45 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  // 节流更新UI - 每100ms最多更新一次
+  void _throttledUpdate() {
+    final now = DateTime.now();
+    final shouldUpdate = _lastUpdateTime == null ||
+        now.difference(_lastUpdateTime!) >= const Duration(milliseconds: 100);
+
+    if (shouldUpdate) {
+      _lastUpdateTime = now;
+      _pendingUpdate = false;
+      if (mounted) {
+        setState(() {}); // 触发UI重建
+      }
+    } else if (!_pendingUpdate) {
+      _pendingUpdate = true;
+      // 延迟更新
+      final delay = const Duration(milliseconds: 100) -
+          now.difference(_lastUpdateTime!);
+      Future.delayed(delay, () {
+        if (mounted && _pendingUpdate) {
+          _lastUpdateTime = DateTime.now();
+          _pendingUpdate = false;
+          setState(() {});
+        }
+      });
+    }
+  }
+
   bool _handleScrollNotification(ScrollNotification notification) {
-    // 监听用户的手动拖拽或滚动
-    if (notification is UserScrollNotification) {
-      // 用户开始拖拽
-      if (notification.direction == ScrollDirection.idle) {
-        // 用户停止拖拽，检查是否在底部
+    if (notification is ScrollUpdateNotification) {
+      // 只有当用户向上滚动超过一定距离时才打断自动滚动
+      if (notification.scrollDelta != null && notification.scrollDelta! < -10) {
+        // 向上滚动超过10像素（scrollDelta 为负数）
         if (_scrollController.hasClients) {
-          final isAtBottom = _scrollController.position.pixels >=
-              _scrollController.position.maxScrollExtent - 50;
-          if (!isAtBottom && !_userScrolling) {
+          final distanceFromBottom = _scrollController.position.maxScrollExtent -
+                                     _scrollController.position.pixels;
+          // 只有当离底部超过100像素时才认为用户想查看历史消息
+          if (distanceFromBottom > 100 && !_userScrolling) {
             setState(() => _userScrolling = true);
           }
-        }
-      } else {
-        // 用户正在拖拽，立即标记为手动滚动
-        if (!_userScrolling) {
-          setState(() => _userScrolling = true);
-        }
-      }
-    } else if (notification is ScrollUpdateNotification) {
-      // 检测滚动方向，向上滚动时立即停止自动滚动
-      if (notification.scrollDelta != null && notification.scrollDelta! < 0) {
-        // 向上滚动（scrollDelta 为负数）
-        if (!_userScrolling) {
-          setState(() => _userScrolling = true);
         }
       }
     }
@@ -89,6 +109,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadMessages() async {
+    // 如果session id为空，说明是新session，跳过加载消息
+    if (widget.session.id.isEmpty) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
       final messages = await widget.repository.getSessionMessages(widget.session.id);
@@ -128,11 +154,23 @@ class _ChatScreenState extends State<ChatScreen> {
     final assistantMessagesByIdIndex = <String, int>{}; // message.id -> index in _messages
 
     try {
+      // 如果session id为空，传null让API创建新session
+      final sessionIdToUse = _currentSession.id.isEmpty ? null : _currentSession.id;
+      bool sessionIdUpdated = false; // 标记是否已更新session id
+
       await for (var event in widget.repository.sendMessageStream(
-        sessionId: widget.session.id,
+        sessionId: sessionIdToUse,
         content: text,
+        cwd: _currentSession.cwd, // 传递工作目录
         settings: _settings,
       )) {
+        // 如果是新session，从第一个消息事件中获取session id并更新
+        if (!sessionIdUpdated && _currentSession.id.isEmpty && event.partialMessage != null) {
+          // 当第一次收到消息时，提取session_id（从message的metadata或其他字段）
+          // 注意：实际的session_id可能需要从API事件中解析
+          // 暂时保持现有逻辑，因为repository已经处理了session创建
+          sessionIdUpdated = true;
+        }
         if (event.error != null) {
           setState(() => _isSending = false);
           if (mounted) {
@@ -161,16 +199,14 @@ class _ChatScreenState extends State<ChatScreen> {
             if (index >= 0 &&
                 index < _messages.length &&
                 _messages[index].role == MessageRole.assistant) {
-              setState(() {
-                _messages[index] = partial;
-              });
+              _messages[index] = partial; // 直接更新，不触发setState
+              _throttledUpdate(); // 节流更新UI
             }
           } else {
             // Add new assistant message
-            setState(() {
-              _messages.add(partial);
-              assistantMessagesByIdIndex[messageId] = _messages.length - 1;
-            });
+            _messages.add(partial);
+            assistantMessagesByIdIndex[messageId] = _messages.length - 1;
+            _throttledUpdate(); // 节流更新UI
           }
           _scrollToBottom();
         }
@@ -324,16 +360,22 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: _messages.isEmpty
                 ? _buildEmptyState()
-                : NotificationListener<ScrollNotification>(
-                    onNotification: _handleScrollNotification,
-                    child: ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) {
-                        return MessageBubble(message: _messages[index]);
-                      },
-                    ),
+                : Stack(
+                    children: [
+                      NotificationListener<ScrollNotification>(
+                        onNotification: _handleScrollNotification,
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: _messages.length,
+                          itemBuilder: (context, index) {
+                            return MessageBubble(message: _messages[index]);
+                          },
+                        ),
+                      ),
+                      // 滚动到底部按钮
+                      if (_userScrolling) _buildScrollToBottomButton(),
+                    ],
                   ),
           ),
           if (_lastMessageStats != null) _buildStatsPanel(),
@@ -446,6 +488,39 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
     return chip;
+  }
+
+  Widget _buildScrollToBottomButton() {
+    return Positioned(
+      right: 16,
+      bottom: 16,
+      child: AnimatedOpacity(
+        opacity: _userScrolling ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 200),
+        child: Material(
+          color: AppColors.primary.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(28),
+          elevation: 4,
+          child: InkWell(
+            onTap: () {
+              setState(() => _userScrolling = false);
+              _scrollToBottomImmediate();
+            },
+            borderRadius: BorderRadius.circular(28),
+            child: Container(
+              width: 56,
+              height: 56,
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.arrow_downward,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildEmptyState() {
