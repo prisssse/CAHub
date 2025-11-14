@@ -107,4 +107,23 @@ class ApiService {
       }
     }
   }
+
+  Future<Map<String, dynamic>> loadSessions({String? claudeDir}) async {
+    final body = <String, dynamic>{};
+    if (claudeDir != null) {
+      body['claude_dir'] = claudeDir;
+    }
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/sessions/load'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(body),
+    );
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to load sessions: ${response.statusCode}');
+    }
+  }
 }

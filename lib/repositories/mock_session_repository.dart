@@ -45,4 +45,22 @@ class MockSessionRepository implements SessionRepository {
   Future<void> clearSessionMessages(String sessionId) async {
     _messageStore[sessionId]?.clear();
   }
+
+  @override
+  Stream<MessageStreamEvent> sendMessageStream({
+    required String sessionId,
+    required String content,
+    SessionSettings? settings,
+  }) async* {
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    final response = Message.assistant('This is a mock response to: $content');
+    _messageStore.putIfAbsent(sessionId, () => []);
+    _messageStore[sessionId]!.add(response);
+
+    yield MessageStreamEvent(
+      finalMessage: response,
+      isDone: true,
+    );
+  }
 }

@@ -20,11 +20,22 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
   late PermissionMode _permissionMode;
   late TextEditingController _systemPromptController;
   late bool _includeProjectSettings;
+  late SystemPromptMode _systemPromptMode;
+  late String _systemPromptPreset;
+
+  final List<String> _availablePresets = [
+    'default',
+    'advanced',
+    'concise',
+    'creative',
+  ];
 
   @override
   void initState() {
     super.initState();
     _permissionMode = widget.settings.permissionMode;
+    _systemPromptMode = widget.settings.systemPromptMode;
+    _systemPromptPreset = widget.settings.systemPromptPreset ?? 'default';
     _systemPromptController = TextEditingController(
       text: widget.settings.systemPrompt ?? '',
     );
@@ -48,9 +59,11 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
       sessionId: widget.settings.sessionId,
       cwd: widget.settings.cwd,
       permissionMode: _permissionMode,
-      systemPrompt: _systemPromptController.text.trim().isEmpty
-          ? null
-          : _systemPromptController.text.trim(),
+      systemPromptMode: _systemPromptMode,
+      systemPromptPreset: _systemPromptMode == SystemPromptMode.preset ? _systemPromptPreset : null,
+      systemPrompt: _systemPromptMode == SystemPromptMode.custom && _systemPromptController.text.trim().isNotEmpty
+          ? _systemPromptController.text.trim()
+          : null,
       settingSources: settingSources,
     );
 
@@ -143,22 +156,82 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
           _buildInfoCard(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: TextField(
-                controller: _systemPromptController,
-                style: TextStyle(color: AppColors.textPrimary),
-                decoration: InputDecoration(
-                  hintText: '输入自定义系统提示词（可选）',
-                  hintStyle: TextStyle(color: AppColors.textTertiary),
-                  border: OutlineInputBorder(
-                    borderSide: BorderSide(color: AppColors.divider),
-                    borderRadius: BorderRadius.circular(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Mode selector
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildModeButton(
+                          mode: SystemPromptMode.preset,
+                          label: '预设',
+                          icon: Icons.style,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildModeButton(
+                          mode: SystemPromptMode.custom,
+                          label: '自定义',
+                          icon: Icons.edit,
+                        ),
+                      ),
+                    ],
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: AppColors.primary),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                maxLines: 5,
+                  const SizedBox(height: 16),
+
+                  // Preset dropdown or custom text field
+                  if (_systemPromptMode == SystemPromptMode.preset)
+                    DropdownButtonFormField<String>(
+                      value: _systemPromptPreset,
+                      decoration: InputDecoration(
+                        labelText: '选择预设',
+                        labelStyle: TextStyle(color: AppColors.textSecondary),
+                        border: OutlineInputBorder(
+                          borderSide: BorderSide(color: AppColors.divider),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: AppColors.primary),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      items: _availablePresets.map((preset) {
+                        return DropdownMenuItem(
+                          value: preset,
+                          child: Text(
+                            _getPresetDisplayName(preset),
+                            style: TextStyle(color: AppColors.textPrimary),
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _systemPromptPreset = value);
+                        }
+                      },
+                      dropdownColor: AppColors.cardBackground,
+                    )
+                  else
+                    TextField(
+                      controller: _systemPromptController,
+                      style: TextStyle(color: AppColors.textPrimary),
+                      decoration: InputDecoration(
+                        hintText: '输入自定义系统提示词（可选）',
+                        hintStyle: TextStyle(color: AppColors.textTertiary),
+                        border: OutlineInputBorder(
+                          borderSide: BorderSide(color: AppColors.divider),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: AppColors.primary),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      maxLines: 5,
+                    ),
+                ],
               ),
             ),
           ),
@@ -273,5 +346,67 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
         setState(() => _permissionMode = mode);
       },
     );
+  }
+
+  Widget _buildModeButton({
+    required SystemPromptMode mode,
+    required String label,
+    required IconData icon,
+  }) {
+    final isSelected = _systemPromptMode == mode;
+    return Material(
+      color: isSelected ? AppColors.primary : AppColors.background,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: () {
+          setState(() => _systemPromptMode = mode);
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSelected ? AppColors.primary : AppColors.divider,
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: isSelected ? Colors.white : AppColors.textSecondary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: isSelected ? Colors.white : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _getPresetDisplayName(String preset) {
+    switch (preset) {
+      case 'default':
+        return '默认 (Default)';
+      case 'advanced':
+        return '高级 (Advanced)';
+      case 'concise':
+        return '简洁 (Concise)';
+      case 'creative':
+        return '创意 (Creative)';
+      default:
+        return preset;
+    }
   }
 }

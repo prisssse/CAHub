@@ -15,11 +15,18 @@ enum PermissionMode {
   }
 }
 
+enum SystemPromptMode {
+  preset,
+  custom,
+}
+
 class SessionSettings {
   final String sessionId;
   final String cwd; // Read-only, cannot be changed
   final PermissionMode permissionMode;
-  final String? systemPrompt;
+  final String? systemPrompt; // Custom text
+  final String? systemPromptPreset; // Preset name: advanced, default, concise, creative
+  final SystemPromptMode systemPromptMode;
   final List<String> settingSources; // user is required, project is optional
 
   SessionSettings({
@@ -27,6 +34,8 @@ class SessionSettings {
     required this.cwd,
     this.permissionMode = PermissionMode.defaultMode,
     this.systemPrompt,
+    this.systemPromptPreset,
+    this.systemPromptMode = SystemPromptMode.custom,
     List<String>? settingSources,
   }) : settingSources = settingSources ?? ['user'];
 
@@ -35,6 +44,8 @@ class SessionSettings {
     String? cwd,
     PermissionMode? permissionMode,
     String? systemPrompt,
+    String? systemPromptPreset,
+    SystemPromptMode? systemPromptMode,
     List<String>? settingSources,
   }) {
     return SessionSettings(
@@ -42,28 +53,61 @@ class SessionSettings {
       cwd: cwd ?? this.cwd,
       permissionMode: permissionMode ?? this.permissionMode,
       systemPrompt: systemPrompt ?? this.systemPrompt,
+      systemPromptPreset: systemPromptPreset ?? this.systemPromptPreset,
+      systemPromptMode: systemPromptMode ?? this.systemPromptMode,
       settingSources: settingSources ?? this.settingSources,
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {
+    final json = {
       'session_id': sessionId,
       'cwd': cwd,
       'permission_mode': permissionMode.value,
-      if (systemPrompt != null) 'system_prompt': systemPrompt,
       'setting_sources': settingSources,
     };
+
+    // Add system_prompt based on mode
+    if (systemPromptMode == SystemPromptMode.preset) {
+      final preset = systemPromptPreset;
+      if (preset != null) {
+        json['system_prompt'] = {'preset': preset};
+      }
+    } else if (systemPromptMode == SystemPromptMode.custom) {
+      final prompt = systemPrompt;
+      if (prompt != null && prompt.isNotEmpty) {
+        json['system_prompt'] = prompt;
+      }
+    }
+
+    return json;
   }
 
   factory SessionSettings.fromJson(Map<String, dynamic> json) {
+    final systemPromptValue = json['system_prompt'];
+    String? systemPrompt;
+    String? systemPromptPreset;
+    SystemPromptMode mode = SystemPromptMode.custom;
+
+    if (systemPromptValue is Map) {
+      // Preset format: {"preset": "advanced"}
+      systemPromptPreset = systemPromptValue['preset'];
+      mode = SystemPromptMode.preset;
+    } else if (systemPromptValue is String) {
+      // Custom text format
+      systemPrompt = systemPromptValue;
+      mode = SystemPromptMode.custom;
+    }
+
     return SessionSettings(
       sessionId: json['session_id'],
       cwd: json['cwd'],
       permissionMode: json['permission_mode'] != null
           ? PermissionMode.fromString(json['permission_mode'])
           : PermissionMode.defaultMode,
-      systemPrompt: json['system_prompt'],
+      systemPrompt: systemPrompt,
+      systemPromptPreset: systemPromptPreset,
+      systemPromptMode: mode,
       settingSources: json['setting_sources'] != null
           ? List<String>.from(json['setting_sources'])
           : ['user'],

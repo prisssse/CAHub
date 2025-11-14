@@ -9,6 +9,9 @@ class ApiProjectRepository implements ProjectRepository {
   ApiProjectRepository(this._apiService);
 
   @override
+  ApiService get apiService => _apiService;
+
+  @override
   Future<List<Project>> getProjects() async {
     final sessions = await _apiService.getSessions();
 
@@ -96,5 +99,29 @@ class ApiProjectRepository implements ProjectRepository {
     projectSessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
     return projectSessions;
+  }
+
+  @override
+  Future<Session> getSession(String sessionId) async {
+    final data = await _apiService.getSession(sessionId);
+    return Session(
+      id: data['session_id'],
+      projectId: data['cwd'],
+      title: data['title'],
+      name: data['title'],
+      cwd: data['cwd'],
+      createdAt: DateTime.parse(data['created_at']),
+      updatedAt: DateTime.parse(data['updated_at']),
+      messageCount: (data['messages'] as List).length,
+    );
+  }
+
+  @override
+  Future<Map<String, int>> reloadSessions({String? claudeDir}) async {
+    final result = await _apiService.loadSessions(claudeDir: claudeDir);
+    return {
+      'sessions': result['sessions_loaded'] as int? ?? 0,
+      'agentRuns': result['agent_runs_loaded'] as int? ?? 0,
+    };
   }
 }

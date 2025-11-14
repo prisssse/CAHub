@@ -28,6 +28,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoading = false;
   bool _isSending = false;
   late SessionSettings _settings;
+  MessageStats? _lastMessageStats; // 最后一条消息的统计信息
+  bool _showStats = false; // 是否显示统计信息
 
   @override
   void initState() {
@@ -67,22 +69,87 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.clear();
     _scrollToBottom();
 
+    // Placeholder for streaming assistant message
+    Message? currentAssistantMessage;
+    int assistantMessageIndex = -1;
+
     try {
-      final response = await widget.repository.sendMessage(
+      await for (var event in widget.repository.sendMessageStream(
         sessionId: widget.session.id,
         content: text,
         settings: _settings,
-      );
-      setState(() {
-        _messages.add(response);
-        _isSending = false;
-      });
-      _scrollToBottom();
+      )) {
+        if (event.error != null) {
+          setState(() => _isSending = false);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('发送失败: ${event.error}')),
+            );
+          }
+          return;
+        }
+
+        if (event.stats != null) {
+          // 保存统计信息
+          setState(() {
+            _lastMessageStats = event.stats;
+            _showStats = true; // 自动显示统计信息
+          });
+        }
+
+        if (event.partialMessage != null) {
+          // Update the assistant message in real-time
+          if (currentAssistantMessage == null) {
+            // First chunk: add new message
+            currentAssistantMessage = event.partialMessage!;
+            setState(() {
+              _messages.add(currentAssistantMessage!);
+              assistantMessageIndex = _messages.length - 1;
+            });
+          } else {
+            // Subsequent chunks: update existing message
+            // 安全检查：确保索引有效且指向助手消息
+            if (assistantMessageIndex >= 0 &&
+                assistantMessageIndex < _messages.length &&
+                _messages[assistantMessageIndex].role == MessageRole.assistant) {
+              currentAssistantMessage = event.partialMessage!;
+              setState(() {
+                _messages[assistantMessageIndex] = currentAssistantMessage!;
+              });
+            }
+          }
+          _scrollToBottom();
+        }
+
+        if (event.finalMessage != null) {
+          // Replace with final message
+          if (assistantMessageIndex >= 0 &&
+              assistantMessageIndex < _messages.length &&
+              _messages[assistantMessageIndex].role == MessageRole.assistant) {
+            setState(() {
+              _messages[assistantMessageIndex] = event.finalMessage!;
+            });
+          } else if (currentAssistantMessage == null) {
+            // Fallback: add final message if no partial was received
+            setState(() {
+              _messages.add(event.finalMessage!);
+            });
+          }
+          _scrollToBottom();
+        }
+
+        if (event.isDone) {
+          setState(() => _isSending = false);
+          return;
+        }
+      }
+
+      setState(() => _isSending = false);
     } catch (e) {
       setState(() => _isSending = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send message: $e')),
+          SnackBar(content: Text('发送失败: $e')),
         );
       }
     }
@@ -195,10 +262,116 @@ class _ChatScreenState extends State<ChatScreen> {
                     },
                   ),
           ),
+          if (_lastMessageStats != null) _buildStatsPanel(),
           _buildInputArea(),
         ],
       ),
     );
+  }
+
+  Widget _buildStatsPanel() {
+    final stats = _lastMessageStats!;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      height: _showStats ? null : 0,
+      child: _showStats
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.toolBackground.withOpacity(0.3),
+                border: Border(
+                  top: BorderSide(color: AppColors.divider, width: 1),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        _buildStatChip(
+                          icon: Icons.token,
+                          label: '${stats.totalTokens} tokens',
+                          tooltip: 'Input: ${stats.inputTokens ?? 0}, Output: ${stats.outputTokens ?? 0}',
+                        ),
+                        _buildStatChip(
+                          icon: Icons.schedule,
+                          label: stats.formattedDuration,
+                          tooltip: 'API: ${(stats.durationApiMs / 1000).toStringAsFixed(1)}s',
+                        ),
+                        if (stats.costUsd != null)
+                          _buildStatChip(
+                            icon: Icons.attach_money,
+                            label: stats.formattedCost,
+                          ),
+                        if (stats.numTurns > 1)
+                          _buildStatChip(
+                            icon: Icons.refresh,
+                            label: '${stats.numTurns} 轮',
+                          ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      _showStats ? Icons.expand_more : Icons.expand_less,
+                      size: 20,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _showStats = !_showStats;
+                      });
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildStatChip({
+    required IconData icon,
+    required String label,
+    String? tooltip,
+  }) {
+    final chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppColors.textSecondary),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (tooltip != null) {
+      return Tooltip(
+        message: tooltip,
+        child: chip,
+      );
+    }
+    return chip;
   }
 
   Widget _buildEmptyState() {

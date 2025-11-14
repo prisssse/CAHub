@@ -4,6 +4,24 @@ import 'project_repository.dart';
 
 class MockProjectRepository implements ProjectRepository {
   @override
+  dynamic get apiService => null;
+
+  @override
+  Future<Session> getSession(String sessionId) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    return Session(
+      id: sessionId,
+      projectId: 'project-1',
+      title: 'Test Session',
+      name: 'Test Session',
+      cwd: '/projects/test',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      messageCount: 0,
+    );
+  }
+
+  @override
   Future<List<Project>> getProjects() async {
     await Future.delayed(const Duration(milliseconds: 500));
     return [
@@ -82,5 +100,14 @@ class MockProjectRepository implements ProjectRepository {
         messageCount: 8,
       ),
     ];
+  }
+
+  @override
+  Future<Map<String, int>> reloadSessions({String? claudeDir}) async {
+    await Future.delayed(const Duration(seconds: 1));
+    return {
+      'sessions': 10,
+      'agentRuns': 4,
+    };
   }
 }

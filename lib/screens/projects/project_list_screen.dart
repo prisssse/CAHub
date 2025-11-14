@@ -4,6 +4,7 @@ import '../../models/project.dart';
 import '../../repositories/project_repository.dart';
 import '../sessions/session_list_screen.dart';
 import '../settings/settings_screen.dart';
+import '../../services/api_service.dart';
 
 class ProjectListScreen extends StatefulWidget {
   final ProjectRepository repository;
@@ -40,6 +41,189 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     }
   }
 
+  Future<void> _reloadSessionsFromDisk() async {
+    try {
+      // 显示加载对话框
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => Center(
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: AppColors.primary),
+                    const SizedBox(height: 16),
+                    Text(
+                      '正在从 Claude Code 加载会话...',
+                      style: TextStyle(color: AppColors.textPrimary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      final result = await widget.repository.reloadSessions();
+
+      if (mounted) {
+        Navigator.pop(context); // 关闭加载对话框
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '已加载 ${result['sessions']} 个会话，${result['agentRuns']} 个子任务',
+            ),
+            backgroundColor: AppColors.primary,
+          ),
+        );
+      }
+
+      // 重新加载项目列表
+      _loadProjects();
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // 关闭加载对话框
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('加载失败: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _addNewProject() async {
+    final pathController = TextEditingController(text: 'C:\\Users');
+    final messageController = TextEditingController();
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('添加项目'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: pathController,
+              decoration: const InputDecoration(
+                labelText: '项目路径',
+                hintText: '输入项目目录路径',
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: messageController,
+              decoration: const InputDecoration(
+                labelText: '第一条消息',
+                hintText: '输入你想问的问题',
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (pathController.text.trim().isNotEmpty &&
+                  messageController.text.trim().isNotEmpty) {
+                Navigator.pop(context, {
+                  'path': pathController.text.trim(),
+                  'message': messageController.text.trim(),
+                });
+              }
+            },
+            child: Text('创建', style: TextStyle(color: AppColors.primary)),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && mounted) {
+      _startNewProjectSession(result['path']!, result['message']!);
+    }
+  }
+
+  Future<void> _startNewProjectSession(String cwd, String firstMessage) async {
+    try {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Center(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: AppColors.primary),
+                  const SizedBox(height: 16),
+                  Text(
+                    '正在创建会话...',
+                    style: TextStyle(color: AppColors.textPrimary),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      String? newSessionId;
+      final apiService = widget.repository.apiService;
+
+      await for (var event in apiService.chat(message: firstMessage, cwd: cwd)) {
+        if (event['event_type'] == 'session') {
+          newSessionId = event['session_id'];
+          break;
+        }
+      }
+
+      if (mounted) Navigator.pop(context); // Close loading dialog
+
+      if (newSessionId != null && mounted) {
+        // Fetch the created session
+        final session = await widget.repository.getSession(newSessionId);
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => SessionListScreen(
+              project: Project(
+                id: cwd,
+                name: cwd.split('\\').last,
+                path: cwd,
+                sessionCount: 1,
+                createdAt: DateTime.now(),
+              ),
+              repository: widget.repository,
+            ),
+          ),
+        ).then((_) => _loadProjects());
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('创建失败: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -47,6 +231,11 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
       appBar: AppBar(
         title: const Text('项目'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _reloadSessionsFromDisk,
+            tooltip: '从 Claude Code 加载会话',
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
@@ -59,6 +248,11 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
             },
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _addNewProject,
+        backgroundColor: AppColors.primary,
+        child: const Icon(Icons.add),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

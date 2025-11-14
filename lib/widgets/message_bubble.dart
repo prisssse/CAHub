@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/message.dart';
@@ -58,29 +59,7 @@ class MessageBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            MarkdownBody(
-              data: message.content,
-              styleSheet: MarkdownStyleSheet(
-                p: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 15,
-                  height: 1.5,
-                ),
-                code: const TextStyle(
-                  backgroundColor: AppColors.codeBackground,
-                  color: AppColors.textPrimary,
-                  fontSize: 14,
-                ),
-                codeblockDecoration: BoxDecoration(
-                  color: AppColors.codeBackground,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                blockquote: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
+            ...message.contentBlocks.map((block) => _buildContentBlock(block)),
             const SizedBox(height: 4),
             Text(
               _formatTime(message.timestamp),
@@ -91,6 +70,205 @@ class MessageBubble extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildContentBlock(ContentBlock block) {
+    switch (block.type) {
+      case ContentBlockType.text:
+        return _buildTextBlock(block.text ?? '');
+
+      case ContentBlockType.thinking:
+        return _buildThinkingBlock(block.thinking ?? '');
+
+      case ContentBlockType.toolUse:
+        return _buildToolUseBlock(
+          name: block.name ?? 'unknown',
+          input: block.input ?? {},
+        );
+
+      case ContentBlockType.toolResult:
+        return _buildToolResultBlock(
+          content: block.content,
+          isError: block.isError ?? false,
+        );
+
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildTextBlock(String text) {
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: MarkdownBody(
+        data: text,
+        styleSheet: MarkdownStyleSheet(
+          p: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 15,
+            height: 1.5,
+          ),
+          code: const TextStyle(
+            backgroundColor: AppColors.codeBackground,
+            color: AppColors.textPrimary,
+            fontSize: 14,
+          ),
+          codeblockDecoration: BoxDecoration(
+            color: AppColors.codeBackground,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          blockquote: const TextStyle(
+            color: AppColors.textSecondary,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThinkingBlock(String thinking) {
+    if (thinking.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: AppColors.toolBackground.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.psychology, size: 16, color: AppColors.textSecondary),
+              const SizedBox(width: 4),
+              Text(
+                '思考中',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            thinking,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolUseBlock({required String name, required Map<String, dynamic> input}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: AppColors.toolBackground.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.build, size: 16, color: AppColors.primary),
+              const SizedBox(width: 4),
+              Text(
+                '工具调用: $name',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          if (input.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.codeBackground,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                JsonEncoder.withIndent('  ').convert(input),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolResultBlock({required dynamic content, required bool isError}) {
+    final displayContent = content?.toString() ?? '';
+    if (displayContent.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: isError
+            ? AppColors.error.withOpacity(0.1)
+            : AppColors.toolBackground.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isError
+              ? AppColors.error.withOpacity(0.3)
+              : AppColors.divider,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.check_circle_outline,
+                size: 16,
+                color: isError ? AppColors.error : AppColors.textSecondary,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                isError ? '工具错误' : '工具结果',
+                style: TextStyle(
+                  color: isError ? AppColors.error : AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            displayContent,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+        ],
       ),
     );
   }
