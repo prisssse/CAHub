@@ -120,14 +120,14 @@ class _SessionListScreenState extends State<SessionListScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(widget.project?.name ?? '会话'),
-        actions: [
-          if (!widget.isSelectMode)
-            IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: _createNewSession,
-            ),
-        ],
       ),
+      floatingActionButton: widget.isSelectMode
+          ? null
+          : FloatingActionButton(
+              onPressed: _createNewSession,
+              backgroundColor: AppColors.primary,
+              child: const Icon(Icons.add),
+            ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(

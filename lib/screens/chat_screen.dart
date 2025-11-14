@@ -13,18 +13,22 @@ import 'session_settings_screen.dart';
 class ChatScreen extends StatefulWidget {
   final Session session;
   final SessionRepository repository;
+  final VoidCallback? onMessageComplete; // 消息完成回调，用于通知标签页
+  final ValueNotifier<bool>? hasNewReplyNotifier; // 新回复通知器，用于显示AppBar提示
 
   const ChatScreen({
     super.key,
     required this.session,
     required this.repository,
+    this.onMessageComplete,
+    this.hasNewReplyNotifier,
   });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMixin {
   final List<Message> _messages = [];
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -39,6 +43,9 @@ class _ChatScreenState extends State<ChatScreen> {
   // 节流相关 - 优化流式传输UI更新
   DateTime? _lastUpdateTime;
   bool _pendingUpdate = false;
+
+  @override
+  bool get wantKeepAlive => true; // 保持状态，防止切换标签时丢失消息
 
   @override
   void initState() {
@@ -165,16 +172,28 @@ class _ChatScreenState extends State<ChatScreen> {
         cwd: _currentSession.cwd, // 传递工作目录
         settings: _settings,
       )) {
-        // 如果是新session，从第一个消息事件中获取session id并更新
-        if (!sessionIdUpdated && _currentSession.id.isEmpty && event.partialMessage != null) {
-          // 当第一次收到消息时，提取session_id（从message的metadata或其他字段）
-          // 注意：实际的session_id可能需要从API事件中解析
-          // 暂时保持现有逻辑，因为repository已经处理了session创建
-          sessionIdUpdated = true;
+        // 捕获新创建的session ID
+        if (event.sessionId != null && event.sessionId!.isNotEmpty) {
+          if (_currentSession.id.isEmpty && !sessionIdUpdated) {
+            // 更新本地session对象
+            _currentSession = Session(
+              id: event.sessionId!,
+              projectId: _currentSession.projectId,
+              title: _currentSession.title,
+              name: _currentSession.name,
+              cwd: _currentSession.cwd,
+              createdAt: _currentSession.createdAt,
+              updatedAt: DateTime.now(),
+              messageCount: _currentSession.messageCount,
+            );
+            sessionIdUpdated = true;
+            print('DEBUG: Updated session ID to ${event.sessionId}');
+          }
         }
+
         if (event.error != null) {
-          setState(() => _isSending = false);
           if (mounted) {
+            setState(() => _isSending = false);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('发送失败: ${event.error}')),
             );
@@ -184,10 +203,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
         if (event.stats != null) {
           // 保存统计信息
-          setState(() {
-            _lastMessageStats = event.stats;
-            _showStats = true; // 自动显示统计信息
-          });
+          if (mounted) {
+            setState(() {
+              _lastMessageStats = event.stats;
+              _showStats = true; // 自动显示统计信息
+            });
+          }
         }
 
         if (event.partialMessage != null) {
@@ -222,30 +243,40 @@ class _ChatScreenState extends State<ChatScreen> {
             if (index >= 0 &&
                 index < _messages.length &&
                 _messages[index].role == MessageRole.assistant) {
-              setState(() {
-                _messages[index] = final_;
-              });
+              if (mounted) {
+                setState(() {
+                  _messages[index] = final_;
+                });
+              }
             }
           } else {
             // Fallback: add final message if no partial was received
-            setState(() {
-              _messages.add(final_);
-              assistantMessagesByIdIndex[messageId] = _messages.length - 1;
-            });
+            if (mounted) {
+              setState(() {
+                _messages.add(final_);
+                assistantMessagesByIdIndex[messageId] = _messages.length - 1;
+              });
+            }
           }
           _scrollToBottom();
         }
 
         if (event.isDone) {
-          setState(() => _isSending = false);
+          if (mounted) {
+            setState(() => _isSending = false);
+          }
+          // 通知标签页有新回复（如果当前不在焦点）
+          widget.onMessageComplete?.call();
           return;
         }
       }
 
-      setState(() => _isSending = false);
-    } catch (e) {
-      setState(() => _isSending = false);
       if (mounted) {
+        setState(() => _isSending = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSending = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('发送失败: $e')),
         );
@@ -269,33 +300,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _clearMessages() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('清除消息'),
-        content: const Text('确定要清除所有消息吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('清除'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await widget.repository.clearSessionMessages(widget.session.id);
-      setState(() {
-        _messages.clear();
-      });
-    }
-  }
 
   // 立即跳转到底部（无动画）
   void _scrollToBottomImmediate() {
@@ -323,20 +327,58 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // 必须调用以保持状态
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
           children: [
-            Text(widget.session.name),
-            Text(
-              widget.session.cwd,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.normal,
-                color: AppColors.textSecondary,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(widget.session.name),
+                  Text(
+                    widget.session.cwd,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.normal,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
+            // 显示新回复提示圆点或发送中指示器
+            if (widget.hasNewReplyNotifier != null)
+              ValueListenableBuilder<bool>(
+                valueListenable: widget.hasNewReplyNotifier!,
+                builder: (context, hasNewReply, child) {
+                  if (hasNewReply || _isSending) {
+                    return Container(
+                      margin: const EdgeInsets.only(left: 8),
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: _isSending
+                            ? AppColors.primary.withOpacity(0.8)
+                            : AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              )
+            else if (_isSending)
+              Container(
+                margin: const EdgeInsets.only(left: 8),
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.8),
+                  shape: BoxShape.circle,
+                ),
+              ),
           ],
         ),
         actions: [
@@ -344,11 +386,6 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: const Icon(Icons.settings_outlined),
             onPressed: _openSettings,
             tooltip: '会话设置',
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: _clearMessages,
-            tooltip: '清除消息',
           ),
         ],
       ),

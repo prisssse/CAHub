@@ -235,6 +235,8 @@ class ApiSessionRepository implements SessionRepository {
     // Track multiple messages by their message IDs (for multi-turn)
     final messageStates = <String, _MessageBuildState>{}; // message.id -> build state
     String? currentMessageId;
+    String? createdSessionId; // 捕获新创建的session ID
+    bool sessionIdEmitted = false; // 标记是否已发送session ID
 
     try {
       await for (var event in _apiService.chat(
@@ -245,6 +247,17 @@ class ApiSessionRepository implements SessionRepository {
       )) {
         final eventType = event['event_type'];
         print('DEBUG SSE: Received event type: $eventType');
+
+        // 捕获session_id（通常在第一个事件中）
+        if (!sessionIdEmitted && event['session_id'] != null) {
+          createdSessionId = event['session_id'] as String?;
+          if (createdSessionId != null && createdSessionId.isNotEmpty) {
+            // 立即发送session ID给前端
+            yield MessageStreamEvent(sessionId: createdSessionId);
+            sessionIdEmitted = true;
+            print('DEBUG SSE: Captured session_id: $createdSessionId');
+          }
+        }
 
         // Check if this is a message event with stream_event payload
         bool isStreamEvent = false;

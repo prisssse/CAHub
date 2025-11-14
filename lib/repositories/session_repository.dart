@@ -9,6 +9,7 @@ class MessageStreamEvent {
   final MessageStats? stats; // 统计信息（从 ResultMessage 提取）
   final String? error;
   final bool isDone;
+  final String? sessionId; // 新创建的session ID（用于新对话）
 
   MessageStreamEvent({
     this.partialMessage,
@@ -16,6 +17,7 @@ class MessageStreamEvent {
     this.stats,
     this.error,
     this.isDone = false,
+    this.sessionId,
   });
 }
 

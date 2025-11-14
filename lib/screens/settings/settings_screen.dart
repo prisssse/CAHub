@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/colors.dart';
 import '../../services/auth_service.dart';
+import '../../services/app_settings_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onLogout;
@@ -15,9 +16,18 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _darkMode = false;
-  bool _notifications = true;
+  final _settingsService = AppSettingsService();
+  late bool _darkMode;
+  late bool _notifications;
   String _apiEndpoint = 'http://192.168.31.99:8207';
+
+  @override
+  void initState() {
+    super.initState();
+    // 从服务中加载设置
+    _darkMode = _settingsService.darkModeEnabled;
+    _notifications = _settingsService.notificationsEnabled;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,19 +70,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 '启用通知',
                 style: TextStyle(
                   fontSize: 16,
-                  color: AppColors.textSecondary,
+                  color: AppColors.textPrimary,
                 ),
               ),
               subtitle: Text(
-                '功能开发中...',
+                '后台标签页有新回复时显示通知',
                 style: TextStyle(
                   fontSize: 13,
-                  color: AppColors.textTertiary,
-                  fontStyle: FontStyle.italic,
+                  color: AppColors.textSecondary,
                 ),
               ),
               value: _notifications,
-              onChanged: null, // 禁用开关
+              onChanged: (value) {
+                setState(() {
+                  _notifications = value;
+                });
+                _settingsService.setNotificationsEnabled(value);
+              },
               activeColor: AppColors.primary,
             ),
           ),
