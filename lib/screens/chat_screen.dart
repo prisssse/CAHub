@@ -30,6 +30,7 @@ class _ChatScreenState extends State<ChatScreen> {
   late SessionSettings _settings;
   MessageStats? _lastMessageStats; // 最后一条消息的统计信息
   bool _showStats = false; // 是否显示统计信息
+  bool _userScrolling = false; // 用户是否正在手动滚动
 
   @override
   void initState() {
@@ -38,7 +39,51 @@ class _ChatScreenState extends State<ChatScreen> {
       sessionId: widget.session.id,
       cwd: widget.session.cwd,
     );
+    // 监听用户手动滚动
+    _scrollController.addListener(_onScroll);
     _loadMessages();
+  }
+
+  void _onScroll() {
+    // 检测用户是否在底部附近
+    if (_scrollController.hasClients) {
+      final isAtBottom = _scrollController.position.pixels >=
+          _scrollController.position.maxScrollExtent - 50;
+      if (isAtBottom && _userScrolling) {
+        setState(() => _userScrolling = false);
+      }
+    }
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    // 监听用户的手动拖拽或滚动
+    if (notification is UserScrollNotification) {
+      // 用户开始拖拽
+      if (notification.direction == ScrollDirection.idle) {
+        // 用户停止拖拽，检查是否在底部
+        if (_scrollController.hasClients) {
+          final isAtBottom = _scrollController.position.pixels >=
+              _scrollController.position.maxScrollExtent - 50;
+          if (!isAtBottom && !_userScrolling) {
+            setState(() => _userScrolling = true);
+          }
+        }
+      } else {
+        // 用户正在拖拽，立即标记为手动滚动
+        if (!_userScrolling) {
+          setState(() => _userScrolling = true);
+        }
+      }
+    } else if (notification is ScrollUpdateNotification) {
+      // 检测滚动方向，向上滚动时立即停止自动滚动
+      if (notification.scrollDelta != null && notification.scrollDelta! < 0) {
+        // 向上滚动
+        if (!_userScrolling) {
+          setState(() => _userScrolling = true);
+        }
+      }
+    }
+    return false;
   }
 
   Future<void> _loadMessages() async {
@@ -50,8 +95,15 @@ class _ChatScreenState extends State<ChatScreen> {
         _messages.addAll(messages);
         _isLoading = false;
       });
+      // 确保在消息加载后滚动到底部，使用 jumpTo 直接跳转
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToBottom();
+        _scrollToBottomImmediate();
+      });
+      // 延迟再次确保滚动到底部（给更长时间让消息渲染完成）
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _scrollToBottomImmediate();
+        }
       });
     } catch (e) {
       setState(() => _isLoading = false);
@@ -65,6 +117,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _messages.add(userMessage);
       _isSending = true;
+      _userScrolling = false; // 重置手动滚动标志，确保新消息能自动滚动
     });
     _textController.clear();
     _scrollToBottom();
@@ -205,13 +258,23 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _scrollToBottom() {
+  // 立即跳转到底部（无动画）
+  void _scrollToBottomImmediate() {
     if (_scrollController.hasClients) {
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (_scrollController.hasClients) {
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    }
+  }
+
+  // 平滑滚动到底部（仅在用户未手动滚动时）
+  void _scrollToBottom() {
+    if (_userScrolling) return; // 用户正在手动滚动，不自动滚动
+
+    if (_scrollController.hasClients) {
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (_scrollController.hasClients && !_userScrolling) {
           _scrollController.animateTo(
             _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 200),
             curve: Curves.easeOut,
           );
         }
@@ -259,13 +322,16 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: _messages.isEmpty
                 ? _buildEmptyState()
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: _messages.length,
-                    itemBuilder: (context, index) {
-                      return MessageBubble(message: _messages[index]);
-                    },
+                : NotificationListener<ScrollNotification>(
+                    onNotification: _handleScrollNotification,
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
+                        return MessageBubble(message: _messages[index]);
+                      },
+                    ),
                   ),
           ),
           if (_lastMessageStats != null) _buildStatsPanel(),

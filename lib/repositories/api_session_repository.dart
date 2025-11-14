@@ -11,6 +11,7 @@ class _MessageBuildState {
   final contentBlockTypes = <int, String>{};
   final textBlocksBuilder = <int, StringBuffer>{};
   final toolUseBlocks = <int, Map<String, dynamic>>{};
+  final finalizedBlocks = <int>{}; // Track which blocks are finalized
   bool finalized = false;
 }
 
@@ -230,9 +231,9 @@ class ApiSessionRepository implements SessionRepository {
     required String content,
     SessionSettings? settings,
   }) async* {
-    // Track multiple messages by their UUIDs (for multi-turn)
-    final messageStates = <String, _MessageBuildState>{}; // uuid -> build state
-    String? currentMessageUuid;
+    // Track multiple messages by their message IDs (for multi-turn)
+    final messageStates = <String, _MessageBuildState>{}; // message.id -> build state
+    String? currentMessageId;
 
     try {
       await for (var event in _apiService.chat(
@@ -245,30 +246,36 @@ class ApiSessionRepository implements SessionRepository {
         // Check if this is a message event with stream_event payload
         bool isStreamEvent = false;
         Map<String, dynamic>? streamEvent;
-        String? eventUuid;
 
         if (eventType == 'message') {
           final payload = event['payload'];
           if (payload != null && payload['type'] == 'stream_event') {
             isStreamEvent = true;
             streamEvent = payload['event'] as Map<String, dynamic>?;
-            eventUuid = payload['uuid'] as String?;
           }
         }
 
         if (isStreamEvent && streamEvent != null) {
-          // Use UUID as message identifier
-          if (eventUuid != null) {
-            currentMessageUuid = eventUuid;
-            if (!messageStates.containsKey(eventUuid)) {
-              messageStates[eventUuid] = _MessageBuildState();
+          final streamEventType = streamEvent['type'];
+
+          // message_start: Extract message ID
+          if (streamEventType == 'message_start') {
+            final message = streamEvent['message'];
+            if (message != null) {
+              final messageId = message['id'] as String?;
+              if (messageId != null) {
+                currentMessageId = messageId;
+                if (!messageStates.containsKey(messageId)) {
+                  messageStates[messageId] = _MessageBuildState();
+                }
+              }
             }
+            continue; // Don't emit anything for message_start
           }
 
-          final state = currentMessageUuid != null ? messageStates[currentMessageUuid!] : null;
+          // Get current state
+          final state = currentMessageId != null ? messageStates[currentMessageId!] : null;
           if (state == null) continue;
-
-          final streamEventType = streamEvent['type'];
 
           if (streamEventType == 'content_block_start') {
             // New content block started
@@ -325,13 +332,14 @@ class ApiSessionRepository implements SessionRepository {
               state.contentBlockTypes,
               state.textBlocksBuilder,
               state.toolUseBlocks,
+              state.finalizedBlocks,
             );
 
             // Emit partial message with current state
             if (blocks.isNotEmpty) {
               yield MessageStreamEvent(
                 partialMessage: Message.fromBlocks(
-                  id: currentMessageUuid!,
+                  id: currentMessageId!,
                   role: MessageRole.assistant,
                   blocks: List.from(blocks),
                 ),
@@ -340,34 +348,64 @@ class ApiSessionRepository implements SessionRepository {
           } else if (streamEventType == 'content_block_stop') {
             // Content block completed - finalize any pending tool inputs
             final index = streamEvent['index'] as int?;
-            if (index != null && state.toolUseBlocks.containsKey(index)) {
-              final inputJson = state.toolUseBlocks[index]!['input_json'] as String?;
-              if (inputJson != null) {
-                try {
-                  state.toolUseBlocks[index]!['input'] =
-                      json.decode(inputJson) as Map<String, dynamic>;
-                } catch (e) {
-                  // Keep empty input if JSON parsing fails
+            if (index != null) {
+              // Mark this block as finalized
+              state.finalizedBlocks.add(index);
+
+              // For tool_use blocks, parse the accumulated JSON
+              if (state.toolUseBlocks.containsKey(index)) {
+                final inputJson = state.toolUseBlocks[index]!['input_json'] as String?;
+                if (inputJson != null && inputJson.isNotEmpty) {
+                  try {
+                    final decoded = json.decode(inputJson);
+                    if (decoded is Map<String, dynamic>) {
+                      state.toolUseBlocks[index]!['input'] = decoded;
+                    }
+                  } catch (e) {
+                    print('Failed to parse tool input JSON: $e');
+                    print('JSON string was: $inputJson');
+                    // Keep empty input if JSON parsing fails
+                  }
                 }
               }
-            }
-          } else if (streamEventType == 'message_stop') {
-            // Message completed - emit final version
-            if (currentMessageUuid != null && state != null) {
+
+              // Rebuild and emit message with newly finalized block
               final blocks = _buildContentBlocks(
                 state.contentBlockTypes,
                 state.textBlocksBuilder,
                 state.toolUseBlocks,
+                state.finalizedBlocks,
+              );
+
+              if (blocks.isNotEmpty && currentMessageId != null) {
+                yield MessageStreamEvent(
+                  partialMessage: Message.fromBlocks(
+                    id: currentMessageId!,
+                    role: MessageRole.assistant,
+                    blocks: List.from(blocks),
+                  ),
+                );
+              }
+            }
+          } else if (streamEventType == 'message_stop') {
+            // Message completed - emit final version
+            if (currentMessageId != null && state != null) {
+              final blocks = _buildContentBlocks(
+                state.contentBlockTypes,
+                state.textBlocksBuilder,
+                state.toolUseBlocks,
+                state.finalizedBlocks,
               );
 
               if (blocks.isNotEmpty) {
                 yield MessageStreamEvent(
                   finalMessage: Message.fromBlocks(
-                    id: currentMessageUuid!,
+                    id: currentMessageId!,
                     role: MessageRole.assistant,
                     blocks: blocks,
                   ),
                 );
+                state.finalized = true;
               }
             }
           }
@@ -380,10 +418,18 @@ class ApiSessionRepository implements SessionRepository {
           }
 
           if (payload != null && payload['type'] == 'assistant') {
-            // Complete message received (fallback for non-streaming)
-            final messageId = payload['id'] as String? ?? '${sessionId}_${DateTime.now().millisecondsSinceEpoch}';
-            final messageContent = payload['content'];
+            // Complete message received - only use if no streaming occurred
+            final messageId = payload['id'] as String?;
 
+            // Skip if we have any messages built via streaming
+            // (AssistantMessage often lacks ID, so we can't match it precisely)
+            if (messageStates.isNotEmpty) {
+              // If any streaming has occurred, ignore non-streaming fallbacks
+              continue;
+            }
+
+            // Fallback for truly non-streaming responses (rare)
+            final messageContent = payload['content'];
             if (messageContent is List) {
               final currentBlocks = <ContentBlock>[];
               for (var blockJson in messageContent) {
@@ -398,9 +444,10 @@ class ApiSessionRepository implements SessionRepository {
               }
 
               if (currentBlocks.isNotEmpty) {
+                final fallbackId = messageId ?? '${sessionId}_${DateTime.now().millisecondsSinceEpoch}';
                 yield MessageStreamEvent(
-                  partialMessage: Message.fromBlocks(
-                    id: messageId,
+                  finalMessage: Message.fromBlocks(
+                    id: fallbackId,
                     role: MessageRole.assistant,
                     blocks: List.from(currentBlocks),
                   ),
@@ -416,29 +463,7 @@ class ApiSessionRepository implements SessionRepository {
             );
           }
         } else if (eventType == 'done') {
-          // Stream completed - emit final messages for any remaining states
-          for (final entry in messageStates.entries) {
-            final uuid = entry.key;
-            final state = entry.value;
-
-            final blocks = _buildContentBlocks(
-              state.contentBlockTypes,
-              state.textBlocksBuilder,
-              state.toolUseBlocks,
-            );
-
-            if (blocks.isNotEmpty && !state.finalized) {
-              yield MessageStreamEvent(
-                finalMessage: Message.fromBlocks(
-                  id: uuid,
-                  role: MessageRole.assistant,
-                  blocks: blocks,
-                ),
-              );
-              state.finalized = true;
-            }
-          }
-
+          // Stream completed - only needed for stats/cleanup
           yield MessageStreamEvent(isDone: true);
           return;
         } else if (eventType == 'error') {
@@ -450,30 +475,11 @@ class ApiSessionRepository implements SessionRepository {
         }
       }
 
-      // Fallback: if stream ends without 'done' event
-      for (final entry in messageStates.entries) {
-        final uuid = entry.key;
-        final state = entry.value;
-
-        final blocks = _buildContentBlocks(
-          state.contentBlockTypes,
-          state.textBlocksBuilder,
-          state.toolUseBlocks,
-        );
-
-        if (blocks.isNotEmpty && !state.finalized) {
-          yield MessageStreamEvent(
-            finalMessage: Message.fromBlocks(
-              id: uuid,
-              role: MessageRole.assistant,
-              blocks: blocks,
-            ),
-          );
-        }
-      }
-
+      // Fallback: if stream ends without 'done' event (shouldn't happen normally)
       yield MessageStreamEvent(isDone: true);
     } catch (e) {
+      // More detailed error logging
+      print('Stream error: $e');
       yield MessageStreamEvent(
         error: e.toString(),
         isDone: true,
@@ -485,6 +491,7 @@ class ApiSessionRepository implements SessionRepository {
     Map<int, String> types,
     Map<int, StringBuffer> textBlocks,
     Map<int, Map<String, dynamic>> toolBlocks,
+    Set<int> finalizedBlocks,
   ) {
     final blocks = <ContentBlock>[];
 
@@ -505,13 +512,16 @@ class ApiSessionRepository implements SessionRepository {
           ));
         }
       } else if (blockType == 'tool_use' && toolBlocks.containsKey(index)) {
-        final toolBlock = toolBlocks[index]!;
-        blocks.add(ContentBlock(
-          type: ContentBlockType.toolUse,
-          id: toolBlock['id'] as String?,
-          name: toolBlock['name'] as String?,
-          input: toolBlock['input'] as Map<String, dynamic>?,
-        ));
+        // Only include tool_use blocks that have been finalized
+        if (finalizedBlocks.contains(index)) {
+          final toolBlock = toolBlocks[index]!;
+          blocks.add(ContentBlock(
+            type: ContentBlockType.toolUse,
+            id: toolBlock['id'] as String?,
+            name: toolBlock['name'] as String?,
+            input: toolBlock['input'] as Map<String, dynamic>?,
+          ));
+        }
       }
     }
 
