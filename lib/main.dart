@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'core/theme/app_theme.dart';
-import 'screens/projects/project_list_screen.dart';
+import 'screens/home_screen.dart';
 import 'services/api_service.dart';
 import 'repositories/api_project_repository.dart';
 
@@ -21,7 +21,7 @@ class MyApp extends StatelessWidget {
       title: 'Claude Code Mobile',
       theme: AppTheme.lightTheme,
       debugShowCheckedModeBanner: false,
-      home: ProjectListScreen(
+      home: HomeScreen(
         repository: repository,
       ),
     );

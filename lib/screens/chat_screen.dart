@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 import '../models/message.dart';
 import '../models/session.dart';
 import '../models/session_settings.dart';
@@ -77,7 +79,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } else if (notification is ScrollUpdateNotification) {
       // 检测滚动方向，向上滚动时立即停止自动滚动
       if (notification.scrollDelta != null && notification.scrollDelta! < 0) {
-        // 向上滚动
+        // 向上滚动（scrollDelta 为负数）
         if (!_userScrolling) {
           setState(() => _userScrolling = true);
         }

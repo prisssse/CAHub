@@ -6,15 +6,20 @@ import '../../repositories/project_repository.dart';
 import '../../services/api_service.dart';
 import '../../repositories/api_session_repository.dart';
 import '../chat_screen.dart';
+import '../tab_navigator_screen.dart';
 
 class SessionListScreen extends StatefulWidget {
-  final Project project;
+  final Project? project;
   final ProjectRepository repository;
+  final bool isSelectMode;
+  final Function(Session)? onSessionSelected;
 
   const SessionListScreen({
     super.key,
     required this.project,
     required this.repository,
+    this.isSelectMode = false,
+    this.onSessionSelected,
   });
 
   @override
@@ -32,9 +37,14 @@ class _SessionListScreenState extends State<SessionListScreen> {
   }
 
   Future<void> _loadSessions() async {
+    if (widget.project == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
-      final sessions = await widget.repository.getProjectSessions(widget.project.id);
+      final sessions = await widget.repository.getProjectSessions(widget.project!.id);
       setState(() {
         _sessions = sessions;
         _isLoading = false;
@@ -134,7 +144,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
       await for (var event in apiService.chat(
         message: firstMessage,
-        cwd: widget.project.path,
+        cwd: widget.project!.path,
       )) {
         if (event['event_type'] == 'session') {
           newSessionId = event['session_id'];
@@ -150,27 +160,26 @@ class _SessionListScreenState extends State<SessionListScreen> {
         // Create session object
         final newSession = Session(
           id: newSessionId,
-          projectId: widget.project.id,
+          projectId: widget.project!.id,
           title: firstMessage.length > 30
               ? '${firstMessage.substring(0, 30)}...'
               : firstMessage,
           name: firstMessage.length > 30
               ? '${firstMessage.substring(0, 30)}...'
               : firstMessage,
-          cwd: widget.project.path,
+          cwd: widget.project!.path,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
           messageCount: 0,
         );
 
-        // Navigate to chat screen
-        final sessionRepository = ApiSessionRepository(apiService);
+        // Navigate to tab navigator with new session
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => ChatScreen(
-              session: newSession,
-              repository: sessionRepository,
+            builder: (_) => TabNavigatorScreen(
+              repository: widget.repository,
+              initialSession: newSession,
             ),
           ),
         ).then((_) {
@@ -193,15 +202,21 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 如果是选择模式且 project 为 null，显示项目列表
+    if (widget.isSelectMode && widget.project == null) {
+      return _buildProjectSelector();
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(widget.project.name),
+        title: Text(widget.project?.name ?? '会话'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: _createNewSession,
-          ),
+          if (!widget.isSelectMode)
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: _createNewSession,
+            ),
         ],
       ),
       body: _isLoading
@@ -252,19 +267,22 @@ class _SessionListScreenState extends State<SessionListScreen> {
       ),
       child: InkWell(
         onTap: () {
-          // Use 10.0.2.2 for Android emulator to access host machine's localhost
-          final apiService = ApiService(baseUrl: 'http://192.168.31.99:8207');
-          final sessionRepository = ApiSessionRepository(apiService);
+          // 如果是选择模式，直接回调
+          if (widget.isSelectMode && widget.onSessionSelected != null) {
+            widget.onSessionSelected!(session);
+            return;
+          }
 
+          // 否则打开标签页管理器
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => ChatScreen(
-                session: session,
-                repository: sessionRepository,
+              builder: (_) => TabNavigatorScreen(
+                repository: widget.repository,
+                initialSession: session,
               ),
             ),
-          );
+          ).then((_) => _loadSessions());
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
@@ -357,6 +375,55 @@ class _SessionListScreenState extends State<SessionListScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildProjectSelector() {
+    return FutureBuilder<List<Project>>(
+      future: widget.repository.getProjects(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('选择项目')),
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final projects = snapshot.data ?? [];
+        return Scaffold(
+          backgroundColor: AppColors.background,
+          appBar: AppBar(title: const Text('选择项目')),
+          body: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: projects.length,
+            itemBuilder: (context, index) {
+              final project = projects[index];
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: Icon(Icons.folder, color: AppColors.primary),
+                  title: Text(project.name),
+                  subtitle: Text(project.path, style: TextStyle(fontSize: 12)),
+                  onTap: () {
+                    // 显示该项目的会话列表
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SessionListScreen(
+                          project: project,
+                          repository: widget.repository,
+                          isSelectMode: true,
+                          onSessionSelected: widget.onSessionSelected,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
