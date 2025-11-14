@@ -6,6 +6,7 @@ import 'screens/auth/login_screen.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
 import 'services/config_service.dart';
+import 'services/app_settings_service.dart';
 import 'repositories/api_project_repository.dart';
 
 void main() {
@@ -22,12 +23,24 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   AuthService? _authService;
   ConfigService? _configService;
+  final _settingsService = AppSettingsService();
   bool _isInitializing = true;
 
   @override
   void initState() {
     super.initState();
+    _settingsService.addListener(_onSettingsChanged);
     _initializeServices();
+  }
+
+  @override
+  void dispose() {
+    _settingsService.removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() {
+    setState(() {}); // 重建应用以应用新设置
   }
 
   Future<void> _initializeServices() async {
@@ -44,9 +57,15 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    // 使用AppTheme.generate生成动态主题
+    final theme = AppTheme.generate(
+      isDark: _settingsService.darkModeEnabled,
+      fontFamily: _settingsService.fontFamily.fontFamily,
+    );
+
     return MaterialApp(
       title: AppConfig.appName,
-      theme: AppTheme.lightTheme,
+      theme: theme,
       debugShowCheckedModeBanner: false,
       home: _isInitializing
           ? Scaffold(

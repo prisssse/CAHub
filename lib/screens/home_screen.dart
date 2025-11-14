@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../core/constants/colors.dart';
 import '../repositories/project_repository.dart';
 import 'projects/project_list_screen.dart';
 import 'recent_sessions_screen.dart';
@@ -61,7 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (index) {
           setState(() => _selectedIndex = index);
         },
-        backgroundColor: AppColors.cardBackground,
+        backgroundColor: Theme.of(context).cardColor,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.folder_outlined),

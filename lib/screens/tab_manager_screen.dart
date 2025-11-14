@@ -2,12 +2,13 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
-import '../core/constants/colors.dart';
+import '../core/theme/app_theme.dart';
 import '../core/utils/platform_helper.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/session_repository.dart';
 import '../models/project.dart';
 import '../services/app_settings_service.dart';
+import '../services/notification_sound_service.dart';
 import 'chat_screen.dart';
 import 'home_screen.dart';
 
@@ -201,12 +202,18 @@ class _TabManagerScreenState extends State<TabManagerScreen>
         return; // 通知已禁用，不显示
       }
 
-      // 播放系统提示音（使用 Flutter 内置的反馈）
+      // 播放通知提示音
+      final soundService = NotificationSoundService();
+      soundService.setVolume(settingsService.notificationVolume);
+      soundService.playNotificationSound();
+
+      // 显示通知界面
       if (context.mounted) {
+        final primaryColor = Theme.of(context).colorScheme.primary;
         // 显示顶部MaterialBanner通知（比SnackBar更显眼）
         ScaffoldMessenger.of(context).showMaterialBanner(
           MaterialBanner(
-            backgroundColor: AppColors.primary.withOpacity(0.95),
+            backgroundColor: primaryColor.withOpacity(0.95),
             content: Row(
               children: [
                 const Icon(Icons.chat, color: Colors.white, size: 20),
@@ -298,13 +305,17 @@ class _TabManagerScreenState extends State<TabManagerScreen>
 
   @override
   Widget build(BuildContext context) {
+    final cardColor = Theme.of(context).cardColor;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final dividerColor = Theme.of(context).dividerColor;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Claude Code Mobile'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: Container(
-            color: AppColors.cardBackground,
+            color: cardColor,
             child: Row(
               children: [
                 Expanded(
@@ -348,7 +359,7 @@ class _TabManagerScreenState extends State<TabManagerScreen>
                                         width: 8,
                                         height: 8,
                                         decoration: BoxDecoration(
-                                          color: AppColors.primary,
+                                          color: primaryColor,
                                           shape: BoxShape.circle,
                                         ),
                                       ),
@@ -395,7 +406,7 @@ class _TabManagerScreenState extends State<TabManagerScreen>
                                       width: 8,
                                       height: 8,
                                       decoration: BoxDecoration(
-                                        color: AppColors.primary,
+                                        color: primaryColor,
                                         shape: BoxShape.circle,
                                       ),
                                     ),
@@ -414,7 +425,7 @@ class _TabManagerScreenState extends State<TabManagerScreen>
                 Container(
                   decoration: BoxDecoration(
                     border: Border(
-                      left: BorderSide(color: AppColors.divider, width: 1),
+                      left: BorderSide(color: dividerColor, width: 1),
                     ),
                   ),
                   child: IconButton(

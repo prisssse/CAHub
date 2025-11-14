@@ -6,7 +6,7 @@ import '../models/session.dart';
 import '../models/session_settings.dart';
 import '../repositories/session_repository.dart';
 import '../widgets/message_bubble.dart';
-import '../core/constants/colors.dart';
+import '../core/theme/app_theme.dart';
 import '../core/utils/platform_helper.dart';
 import 'session_settings_screen.dart';
 
@@ -339,10 +339,10 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                   Text(widget.session.name),
                   Text(
                     widget.session.cwd,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.normal,
-                      color: AppColors.textSecondary,
+                      color: context.appColors.textSecondary,
                     ),
                   ),
                 ],
@@ -354,14 +354,15 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                 valueListenable: widget.hasNewReplyNotifier!,
                 builder: (context, hasNewReply, child) {
                   if (hasNewReply || _isSending) {
+                    final primaryColor = Theme.of(context).colorScheme.primary;
                     return Container(
                       margin: const EdgeInsets.only(left: 8),
                       width: 10,
                       height: 10,
                       decoration: BoxDecoration(
                         color: _isSending
-                            ? AppColors.primary.withOpacity(0.8)
-                            : AppColors.primary,
+                            ? primaryColor.withOpacity(0.8)
+                            : primaryColor,
                         shape: BoxShape.circle,
                       ),
                     );
@@ -370,14 +371,18 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                 },
               )
             else if (_isSending)
-              Container(
-                margin: const EdgeInsets.only(left: 8),
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.8),
-                  shape: BoxShape.circle,
-                ),
+              Builder(
+                builder: (context) {
+                  return Container(
+                    margin: const EdgeInsets.only(left: 8),
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.8),
+                      shape: BoxShape.circle,
+                    ),
+                  );
+                },
               ),
           ],
         ),
@@ -442,6 +447,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
 
   Widget _buildStatsPanel() {
     final stats = _lastMessageStats!;
+    final appColors = context.appColors;
+    final dividerColor = Theme.of(context).dividerColor;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -450,9 +457,9 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           ? Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: AppColors.toolBackground.withOpacity(0.3),
+                color: appColors.toolBackground.withOpacity(0.3),
                 border: Border(
-                  top: BorderSide(color: AppColors.divider, width: 1),
+                  top: BorderSide(color: dividerColor, width: 1),
                 ),
               ),
               child: Row(
@@ -513,23 +520,27 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     required String label,
     String? tooltip,
   }) {
+    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+    final dividerColor = Theme.of(context).dividerColor;
+    final textSecondary = context.appColors.textSecondary;
+
     final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: AppColors.background,
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.divider),
+        border: Border.all(color: dividerColor),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: AppColors.textSecondary),
+          Icon(icon, size: 14, color: textSecondary),
           const SizedBox(width: 4),
           Text(
             label,
             style: TextStyle(
               fontSize: 12,
-              color: AppColors.textSecondary,
+              color: textSecondary,
             ),
           ),
         ],
@@ -546,6 +557,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   }
 
   Widget _buildScrollToBottomButton() {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
     return Positioned(
       right: 16,
       bottom: 16,
@@ -553,7 +566,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         opacity: _userScrolling ? 1.0 : 0.0,
         duration: const Duration(milliseconds: 200),
         child: Material(
-          color: AppColors.primary.withOpacity(0.9),
+          color: primaryColor.withOpacity(0.9),
           borderRadius: BorderRadius.circular(28),
           elevation: 4,
           child: InkWell(
@@ -579,6 +592,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   }
 
   Widget _buildEmptyState() {
+    final appColors = context.appColors;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -586,20 +601,20 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           Icon(
             Icons.chat_bubble_outline,
             size: 64,
-            color: AppColors.textTertiary,
+            color: appColors.textTertiary,
           ),
           const SizedBox(height: 16),
           Text(
             '暂无消息',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: AppColors.textSecondary,
+                  color: appColors.textSecondary,
                 ),
           ),
           const SizedBox(height: 8),
           Text(
             '开始与 Claude Code 对话',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textTertiary,
+                  color: appColors.textTertiary,
                 ),
           ),
         ],
@@ -608,12 +623,17 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   }
 
   Widget _buildInputArea() {
+    final cardColor = Theme.of(context).cardColor;
+    final dividerColor = Theme.of(context).dividerColor;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final appColors = context.appColors;
+
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
+        color: cardColor,
         border: Border(
           top: BorderSide(
-            color: AppColors.divider,
+            color: dividerColor,
             width: 1,
           ),
         ),
@@ -649,7 +669,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
               ),
               const SizedBox(width: 8),
               Material(
-                color: _isSending ? AppColors.textTertiary : AppColors.primary,
+                color: _isSending ? appColors.textTertiary : primaryColor,
                 borderRadius: BorderRadius.circular(24),
                 child: InkWell(
                   onTap: _isSending

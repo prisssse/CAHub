@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/constants/colors.dart';
+import '../../core/theme/app_theme.dart';
 import '../../models/project.dart';
 import '../../models/session.dart';
 import '../../repositories/project_repository.dart';
@@ -111,13 +111,21 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final appColors = context.appColors;
+    final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final errorColor = Theme.of(context).colorScheme.error;
+    final dividerColor = Theme.of(context).dividerColor;
+    final cardColor = Theme.of(context).cardColor;
+    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+
     // 如果是选择模式且 project 为 null，显示项目列表
     if (widget.isSelectMode && widget.project == null) {
       return _buildProjectSelector();
     }
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: backgroundColor,
       appBar: AppBar(
         title: Text(widget.project?.name ?? '会话'),
       ),
@@ -125,7 +133,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
           ? null
           : FloatingActionButton(
               onPressed: _createNewSession,
-              backgroundColor: AppColors.primary,
+              backgroundColor: primaryColor,
               child: const Icon(Icons.add),
             ),
       body: _isLoading
@@ -140,14 +148,14 @@ class _SessionListScreenState extends State<SessionListScreen> {
                           Icon(
                             Icons.chat_bubble_outline,
                             size: 64,
-                            color: AppColors.textTertiary,
+                            color: appColors.textTertiary,
                           ),
                           const SizedBox(height: 16),
                           Text(
                             '未找到会话',
                             style: TextStyle(
                               fontSize: 18,
-                              color: AppColors.textSecondary,
+                              color: appColors.textSecondary,
                             ),
                           ),
                         ],
@@ -166,13 +174,19 @@ class _SessionListScreenState extends State<SessionListScreen> {
   }
 
   Widget _buildSessionCard(Session session) {
+    final appColors = context.appColors;
+    final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final dividerColor = Theme.of(context).dividerColor;
+    final cardColor = Theme.of(context).cardColor;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      color: AppColors.cardBackground,
+      color: cardColor,
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.divider),
+        side: BorderSide(color: dividerColor),
       ),
       child: InkWell(
         onTap: () {
@@ -220,12 +234,12 @@ class _SessionListScreenState extends State<SessionListScreen> {
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
+                      color: primaryColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
                       Icons.chat_bubble,
-                      color: AppColors.primary,
+                      color: primaryColor,
                       size: 28,
                     ),
                   ),
@@ -239,7 +253,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
+                            color: textPrimary,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -247,7 +261,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                           session.cwd,
                           style: TextStyle(
                             fontSize: 13,
-                            color: AppColors.textSecondary,
+                            color: appColors.textSecondary,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -279,22 +293,25 @@ class _SessionListScreenState extends State<SessionListScreen> {
   }
 
   Widget _buildInfoChip({required IconData icon, required String label}) {
+    final appColors = context.appColors;
+    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: AppColors.background,
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: AppColors.textSecondary),
+          Icon(icon, size: 14, color: appColors.textSecondary),
           const SizedBox(width: 4),
           Text(
             label,
             style: TextStyle(
               fontSize: 12,
-              color: AppColors.textSecondary,
+              color: appColors.textSecondary,
             ),
           ),
         ],
@@ -314,8 +331,11 @@ class _SessionListScreenState extends State<SessionListScreen> {
         }
 
         final projects = snapshot.data ?? [];
+        final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+        final primaryColor = Theme.of(context).colorScheme.primary;
+
         return Scaffold(
-          backgroundColor: AppColors.background,
+          backgroundColor: backgroundColor,
           appBar: AppBar(title: const Text('选择项目')),
           body: ListView.builder(
             padding: const EdgeInsets.all(16),
@@ -325,7 +345,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
-                  leading: Icon(Icons.folder, color: AppColors.primary),
+                  leading: Icon(Icons.folder, color: primaryColor),
                   title: Text(project.name),
                   subtitle: Text(project.path, style: TextStyle(fontSize: 12)),
                   onTap: () {

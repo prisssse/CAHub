@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../core/constants/colors.dart';
+import '../core/theme/app_theme.dart';
 import '../models/session.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/api_session_repository.dart';
@@ -57,9 +57,10 @@ class _TabNavigatorScreenState extends State<TabNavigatorScreen>
 
   void _addNewTab() async {
     // 显示会话选择对话框
+    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
     final result = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
-      backgroundColor: AppColors.background,
+      backgroundColor: backgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -137,6 +138,10 @@ class _TabNavigatorScreenState extends State<TabNavigatorScreen>
 
   @override
   Widget build(BuildContext context) {
+    final appColors = context.appColors;
+    final textSecondary = appColors.textSecondary;
+    final textTertiary = appColors.textTertiary;
+
     if (_openSessions.isEmpty) {
       return Scaffold(
         appBar: AppBar(
@@ -146,9 +151,9 @@ class _TabNavigatorScreenState extends State<TabNavigatorScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.chat_bubble_outline, size: 64, color: AppColors.textTertiary),
+              Icon(Icons.chat_bubble_outline, size: 64, color: textTertiary),
               const SizedBox(height: 16),
-              Text('暂无打开的对话', style: TextStyle(color: AppColors.textSecondary)),
+              Text('暂无打开的对话', style: TextStyle(color: textSecondary)),
               const SizedBox(height: 24),
               ElevatedButton.icon(
                 onPressed: _addNewTab,
@@ -261,6 +266,15 @@ class _SessionSelectorSheetState extends State<_SessionSelectorSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final appColors = context.appColors;
+    final backgroundColor = theme.scaffoldBackgroundColor;
+    final cardColor = theme.cardColor;
+    final primaryColor = colorScheme.primary;
+    final textPrimary = colorScheme.onSurface;
+    final textSecondary = appColors.textSecondary;
+
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
       padding: const EdgeInsets.only(top: 16),
@@ -277,7 +291,7 @@ class _SessionSelectorSheetState extends State<_SessionSelectorSheet> {
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+                    color: textPrimary,
                   ),
                 ),
                 IconButton(
@@ -313,9 +327,15 @@ class _SessionSelectorSheetState extends State<_SessionSelectorSheet> {
 
   Widget _buildTabButton(String label, int index) {
     final isSelected = _selectedTab == index;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final backgroundColor = theme.scaffoldBackgroundColor;
+    final primaryColor = colorScheme.primary;
+    final textPrimary = colorScheme.onSurface;
+
     return Expanded(
       child: Material(
-        color: isSelected ? AppColors.primary : AppColors.background,
+        color: isSelected ? primaryColor : backgroundColor,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           onTap: () => setState(() => _selectedTab = index),
@@ -326,7 +346,7 @@ class _SessionSelectorSheetState extends State<_SessionSelectorSheet> {
             child: Text(
               label,
               style: TextStyle(
-                color: isSelected ? Colors.white : AppColors.textPrimary,
+                color: isSelected ? Colors.white : textPrimary,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -341,9 +361,16 @@ class _SessionSelectorSheetState extends State<_SessionSelectorSheet> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final appColors = context.appColors;
+    final cardColor = theme.cardColor;
+    final primaryColor = colorScheme.primary;
+    final textSecondary = appColors.textSecondary;
+
     if (_recentSessions.isEmpty) {
       return Center(
-        child: Text('暂无最近对话', style: TextStyle(color: AppColors.textSecondary)),
+        child: Text('暂无最近对话', style: TextStyle(color: textSecondary)),
       );
     }
 
@@ -354,10 +381,10 @@ class _SessionSelectorSheetState extends State<_SessionSelectorSheet> {
         final session = _recentSessions[index];
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
-          color: AppColors.cardBackground,
+          color: cardColor,
           elevation: 0,
           child: ListTile(
-            leading: Icon(Icons.chat, color: AppColors.primary),
+            leading: Icon(Icons.chat, color: primaryColor),
             title: Text(
               session.name,
               maxLines: 1,
@@ -367,7 +394,7 @@ class _SessionSelectorSheetState extends State<_SessionSelectorSheet> {
               session.cwd,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              style: TextStyle(fontSize: 12, color: textSecondary),
             ),
             onTap: () {
               Navigator.pop(context, {'session': session});

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
+/// AppColors - 用于向后兼容的静态颜色
+/// 推荐使用 Theme.of(context) 或 context.appColors 获取主题相关的颜色
 class AppColors {
+  // 默认fallback颜色（浅色模式）- 保持原来的暖色系
   static const Color background = Color(0xFFFFFBF5);
   static const Color primary = Color(0xFFE8A87C);
   static const Color primaryLight = Color(0xFFF5D4B8);

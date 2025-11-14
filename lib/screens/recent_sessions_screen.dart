@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../core/constants/colors.dart';
+import '../core/theme/app_theme.dart';
 import '../models/session.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/api_session_repository.dart';
@@ -89,8 +89,16 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final appColors = context.appColors;
+    final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final errorColor = Theme.of(context).colorScheme.error;
+    final dividerColor = Theme.of(context).dividerColor;
+    final cardColor = Theme.of(context).cardColor;
+    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: backgroundColor,
       appBar: AppBar(
         title: const Text('最近对话'),
       ),
@@ -113,6 +121,8 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
   }
 
   Widget _buildEmptyState() {
+    final appColors = context.appColors;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -120,14 +130,14 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
           Icon(
             Icons.chat_bubble_outline,
             size: 64,
-            color: AppColors.textTertiary,
+            color: appColors.textTertiary,
           ),
           const SizedBox(height: 16),
           Text(
             '暂无最近对话',
             style: TextStyle(
               fontSize: 18,
-              color: AppColors.textSecondary,
+              color: appColors.textSecondary,
             ),
           ),
         ],
@@ -136,13 +146,19 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
   }
 
   Widget _buildSessionCard(Session session) {
+    final appColors = context.appColors;
+    final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final dividerColor = Theme.of(context).dividerColor;
+    final cardColor = Theme.of(context).cardColor;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      color: AppColors.cardBackground,
+      color: cardColor,
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.divider),
+        side: BorderSide(color: dividerColor),
       ),
       child: InkWell(
         onTap: () => _openSession(session),
@@ -158,12 +174,12 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
+                      color: primaryColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
                       Icons.chat,
-                      color: AppColors.primary,
+                      color: primaryColor,
                       size: 20,
                     ),
                   ),
@@ -177,7 +193,7 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
+                            color: textPrimary,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -187,7 +203,7 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
                           session.cwd,
                           style: TextStyle(
                             fontSize: 12,
-                            color: AppColors.textSecondary,
+                            color: appColors.textSecondary,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -219,22 +235,25 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
   }
 
   Widget _buildInfoChip({required IconData icon, required String label}) {
+    final appColors = context.appColors;
+    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: AppColors.background,
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: AppColors.textSecondary),
+          Icon(icon, size: 12, color: appColors.textSecondary),
           const SizedBox(width: 4),
           Text(
             label,
             style: TextStyle(
               fontSize: 11,
-              color: AppColors.textSecondary,
+              color: appColors.textSecondary,
             ),
           ),
         ],

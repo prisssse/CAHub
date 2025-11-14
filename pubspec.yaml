@@ -41,6 +41,9 @@ dependencies:
   # HTTP client
   http: ^1.1.0
 
+  # Audio player for notification sounds
+  audioplayers: ^6.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

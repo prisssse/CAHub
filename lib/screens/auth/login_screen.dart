@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import '../../core/constants/colors.dart';
+import '../../core/theme/app_theme.dart';
 import '../../config/app_config.dart';
 import '../../services/auth_service.dart';
 import '../../services/config_service.dart';
@@ -125,8 +125,20 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final appColors = context.appColors;
+    final backgroundColor = theme.scaffoldBackgroundColor;
+    final cardColor = theme.cardColor;
+    final primaryColor = colorScheme.primary;
+    final dividerColor = theme.dividerColor;
+    final textPrimary = colorScheme.onSurface;
+    final textSecondary = appColors.textSecondary;
+    final textTertiary = appColors.textTertiary;
+    final errorColor = colorScheme.error;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: backgroundColor,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -141,7 +153,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Icon(
                     Icons.lock_outline,
                     size: 80,
-                    color: AppColors.primary,
+                    color: primaryColor,
                   ),
                   const SizedBox(height: 24),
                   Text(
@@ -150,7 +162,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
+                      color: textPrimary,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -159,7 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 16,
-                      color: AppColors.textSecondary,
+                      color: textSecondary,
                     ),
                   ),
                   const SizedBox(height: 48),
@@ -167,27 +179,27 @@ class _LoginScreenState extends State<LoginScreen> {
                   // API URL Field
                   TextFormField(
                     controller: _apiUrlController,
-                    style: TextStyle(color: AppColors.textPrimary),
+                    style: TextStyle(color: textPrimary),
                     decoration: InputDecoration(
                       labelText: 'API地址',
-                      labelStyle: TextStyle(color: AppColors.textSecondary),
-                      prefixIcon: Icon(Icons.cloud, color: AppColors.primary),
+                      labelStyle: TextStyle(color: textSecondary),
+                      prefixIcon: Icon(Icons.cloud, color: primaryColor),
                       filled: true,
-                      fillColor: AppColors.cardBackground,
+                      fillColor: cardColor,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.divider),
+                        borderSide: BorderSide(color: dividerColor),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.divider),
+                        borderSide: BorderSide(color: dividerColor),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.primary, width: 2),
+                        borderSide: BorderSide(color: primaryColor, width: 2),
                       ),
                       hintText: 'http://127.0.0.1:8207',
-                      hintStyle: TextStyle(color: AppColors.textTertiary),
+                      hintStyle: TextStyle(color: textTertiary),
                     ),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
@@ -205,24 +217,24 @@ class _LoginScreenState extends State<LoginScreen> {
                   // Username Field
                   TextFormField(
                     controller: _usernameController,
-                    style: TextStyle(color: AppColors.textPrimary),
+                    style: TextStyle(color: textPrimary),
                     decoration: InputDecoration(
                       labelText: '用户名',
-                      labelStyle: TextStyle(color: AppColors.textSecondary),
-                      prefixIcon: Icon(Icons.person, color: AppColors.primary),
+                      labelStyle: TextStyle(color: textSecondary),
+                      prefixIcon: Icon(Icons.person, color: primaryColor),
                       filled: true,
-                      fillColor: AppColors.cardBackground,
+                      fillColor: cardColor,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.divider),
+                        borderSide: BorderSide(color: dividerColor),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.divider),
+                        borderSide: BorderSide(color: dividerColor),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.primary, width: 2),
+                        borderSide: BorderSide(color: primaryColor, width: 2),
                       ),
                     ),
                     validator: (value) {
@@ -239,15 +251,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
-                    style: TextStyle(color: AppColors.textPrimary),
+                    style: TextStyle(color: textPrimary),
                     decoration: InputDecoration(
                       labelText: '密码',
-                      labelStyle: TextStyle(color: AppColors.textSecondary),
-                      prefixIcon: Icon(Icons.lock, color: AppColors.primary),
+                      labelStyle: TextStyle(color: textSecondary),
+                      prefixIcon: Icon(Icons.lock, color: primaryColor),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                          color: AppColors.textSecondary,
+                          color: textSecondary,
                         ),
                         onPressed: () {
                           setState(() {
@@ -256,18 +268,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         },
                       ),
                       filled: true,
-                      fillColor: AppColors.cardBackground,
+                      fillColor: cardColor,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.divider),
+                        borderSide: BorderSide(color: dividerColor),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.divider),
+                        borderSide: BorderSide(color: dividerColor),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppColors.primary, width: 2),
+                        borderSide: BorderSide(color: primaryColor, width: 2),
                       ),
                     ),
                     validator: (value) {
@@ -287,18 +299,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       padding: const EdgeInsets.all(12),
                       margin: const EdgeInsets.only(bottom: 16),
                       decoration: BoxDecoration(
-                        color: AppColors.error.withOpacity(0.1),
+                        color: errorColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.error),
+                        border: Border.all(color: errorColor),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.error_outline, color: AppColors.error, size: 20),
+                          Icon(Icons.error_outline, color: errorColor, size: 20),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               _errorMessage!,
-                              style: TextStyle(color: AppColors.error, fontSize: 14),
+                              style: TextStyle(color: errorColor, fontSize: 14),
                             ),
                           ),
                         ],
@@ -311,9 +323,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _handleLogin,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
+                        backgroundColor: primaryColor,
                         foregroundColor: Colors.white,
-                        disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
+                        disabledBackgroundColor: primaryColor.withOpacity(0.5),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),

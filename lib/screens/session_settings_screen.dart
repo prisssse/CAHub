@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../core/constants/colors.dart';
+import '../core/theme/app_theme.dart';
 import '../models/session_settings.dart';
 
 class SessionSettingsScreen extends StatefulWidget {
@@ -73,8 +73,19 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final appColors = context.appColors;
+    final backgroundColor = theme.scaffoldBackgroundColor;
+    final cardColor = theme.cardColor;
+    final primaryColor = colorScheme.primary;
+    final dividerColor = theme.dividerColor;
+    final textPrimary = colorScheme.onSurface;
+    final textSecondary = appColors.textSecondary;
+    final textTertiary = appColors.textTertiary;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: backgroundColor,
       appBar: AppBar(
         title: const Text('会话设置'),
         actions: [
@@ -83,7 +94,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
             child: Text(
               '保存',
               style: TextStyle(
-                color: AppColors.primary,
+                color: primaryColor,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -93,14 +104,16 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildSectionTitle('工作目录'),
+          _buildSectionTitle('工作目录', textSecondary),
           _buildInfoCard(
+            cardColor: cardColor,
+            dividerColor: dividerColor,
             child: ListTile(
               title: Text(
                 '当前目录',
                 style: TextStyle(
                   fontSize: 16,
-                  color: AppColors.textPrimary,
+                  color: textPrimary,
                 ),
               ),
               subtitle: Padding(
@@ -109,51 +122,71 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
                   widget.settings.cwd,
                   style: TextStyle(
                     fontSize: 13,
-                    color: AppColors.textSecondary,
+                    color: textSecondary,
                     fontFamily: 'monospace',
                   ),
                 ),
               ),
               trailing: Icon(
                 Icons.lock_outline,
-                color: AppColors.textTertiary,
+                color: textTertiary,
               ),
             ),
           ),
           const SizedBox(height: 24),
-          _buildSectionTitle('权限模式'),
+          _buildSectionTitle('权限模式', textSecondary),
           _buildInfoCard(
+            cardColor: cardColor,
+            dividerColor: dividerColor,
             child: Column(
               children: [
                 _buildPermissionOption(
                   PermissionMode.defaultMode,
                   '默认',
                   '标准权限模式，需用户批准',
+                  textPrimary,
+                  textSecondary,
+                  textTertiary,
+                  primaryColor,
                 ),
-                Divider(height: 1, color: AppColors.divider),
+                Divider(height: 1, color: dividerColor),
                 _buildPermissionOption(
                   PermissionMode.plan,
                   '计划模式',
                   '执行前先创建计划',
+                  textPrimary,
+                  textSecondary,
+                  textTertiary,
+                  primaryColor,
                 ),
-                Divider(height: 1, color: AppColors.divider),
+                Divider(height: 1, color: dividerColor),
                 _buildPermissionOption(
                   PermissionMode.acceptEdits,
                   '接受编辑',
                   '自动接受文件编辑',
+                  textPrimary,
+                  textSecondary,
+                  textTertiary,
+                  primaryColor,
                 ),
-                Divider(height: 1, color: AppColors.divider),
+                Divider(height: 1, color: dividerColor),
                 _buildPermissionOption(
                   PermissionMode.bypassPermissions,
                   '跳过权限',
                   '执行所有操作无需询问',
+                  textPrimary,
+                  textSecondary,
+                  textTertiary,
+                  primaryColor,
                 ),
               ],
             ),
           ),
           const SizedBox(height: 24),
-          _buildSectionTitle('系统提示词'),
+          _buildSectionTitle('系统提示词', textSecondary),
           _buildInfoCard(
+            cardColor: cardColor,
+            dividerColor: dividerColor,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -167,6 +200,10 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
                           mode: SystemPromptMode.preset,
                           label: '预设',
                           icon: Icons.style,
+                          backgroundColor: backgroundColor,
+                          primaryColor: primaryColor,
+                          dividerColor: dividerColor,
+                          textSecondary: textSecondary,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -175,6 +212,10 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
                           mode: SystemPromptMode.custom,
                           label: '自定义',
                           icon: Icons.edit,
+                          backgroundColor: backgroundColor,
+                          primaryColor: primaryColor,
+                          dividerColor: dividerColor,
+                          textSecondary: textSecondary,
                         ),
                       ),
                     ],
@@ -187,13 +228,13 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
                       value: _systemPromptPreset,
                       decoration: InputDecoration(
                         labelText: '选择预设',
-                        labelStyle: TextStyle(color: AppColors.textSecondary),
+                        labelStyle: TextStyle(color: textSecondary),
                         border: OutlineInputBorder(
-                          borderSide: BorderSide(color: AppColors.divider),
+                          borderSide: BorderSide(color: dividerColor),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: AppColors.primary),
+                          borderSide: BorderSide(color: primaryColor),
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
@@ -202,7 +243,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
                           value: preset,
                           child: Text(
                             _getPresetDisplayName(preset),
-                            style: TextStyle(color: AppColors.textPrimary),
+                            style: TextStyle(color: textPrimary),
                           ),
                         );
                       }).toList(),
@@ -211,21 +252,21 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
                           setState(() => _systemPromptPreset = value);
                         }
                       },
-                      dropdownColor: AppColors.cardBackground,
+                      dropdownColor: cardColor,
                     )
                   else
                     TextField(
                       controller: _systemPromptController,
-                      style: TextStyle(color: AppColors.textPrimary),
+                      style: TextStyle(color: textPrimary),
                       decoration: InputDecoration(
                         hintText: '输入自定义系统提示词（可选）',
-                        hintStyle: TextStyle(color: AppColors.textTertiary),
+                        hintStyle: TextStyle(color: textTertiary),
                         border: OutlineInputBorder(
-                          borderSide: BorderSide(color: AppColors.divider),
+                          borderSide: BorderSide(color: dividerColor),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: AppColors.primary),
+                          borderSide: BorderSide(color: primaryColor),
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
@@ -236,8 +277,10 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          _buildSectionTitle('设置来源'),
+          _buildSectionTitle('设置来源', textSecondary),
           _buildInfoCard(
+            cardColor: cardColor,
+            dividerColor: dividerColor,
             child: Column(
               children: [
                 ListTile(
@@ -245,42 +288,42 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
                     '用户设置',
                     style: TextStyle(
                       fontSize: 16,
-                      color: AppColors.textPrimary,
+                      color: textPrimary,
                     ),
                   ),
                   subtitle: Text(
                     '必需 - 始终包含',
                     style: TextStyle(
                       fontSize: 13,
-                      color: AppColors.textSecondary,
+                      color: textSecondary,
                     ),
                   ),
                   trailing: Icon(
                     Icons.check_circle,
-                    color: AppColors.primary,
+                    color: primaryColor,
                   ),
                 ),
-                Divider(height: 1, color: AppColors.divider),
+                Divider(height: 1, color: dividerColor),
                 SwitchListTile(
                   title: Text(
                     '项目设置',
                     style: TextStyle(
                       fontSize: 16,
-                      color: AppColors.textPrimary,
+                      color: textPrimary,
                     ),
                   ),
                   subtitle: Text(
                     '包含项目特定设置',
                     style: TextStyle(
                       fontSize: 13,
-                      color: AppColors.textSecondary,
+                      color: textSecondary,
                     ),
                   ),
                   value: _includeProjectSettings,
                   onChanged: (value) {
                     setState(() => _includeProjectSettings = value);
                   },
-                  activeColor: AppColors.primary,
+                  activeColor: primaryColor,
                 ),
               ],
             ),
@@ -290,7 +333,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
+  Widget _buildSectionTitle(String title, Color textSecondary) {
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 8),
       child: Text(
@@ -298,20 +341,24 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
         style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w600,
-          color: AppColors.textSecondary,
+          color: textSecondary,
           letterSpacing: 0.5,
         ),
       ),
     );
   }
 
-  Widget _buildInfoCard({required Widget child}) {
+  Widget _buildInfoCard({
+    required Widget child,
+    required Color cardColor,
+    required Color dividerColor,
+  }) {
     return Card(
-      color: AppColors.cardBackground,
+      color: cardColor,
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.divider),
+        side: BorderSide(color: dividerColor),
       ),
       child: child,
     );
@@ -321,6 +368,10 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
     PermissionMode mode,
     String title,
     String description,
+    Color textPrimary,
+    Color textSecondary,
+    Color textTertiary,
+    Color primaryColor,
   ) {
     final isSelected = _permissionMode == mode;
     return ListTile(
@@ -328,7 +379,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
         title,
         style: TextStyle(
           fontSize: 16,
-          color: AppColors.textPrimary,
+          color: textPrimary,
           fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
         ),
       ),
@@ -336,12 +387,12 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
         description,
         style: TextStyle(
           fontSize: 13,
-          color: AppColors.textSecondary,
+          color: textSecondary,
         ),
       ),
       trailing: isSelected
-          ? Icon(Icons.check_circle, color: AppColors.primary)
-          : Icon(Icons.circle_outlined, color: AppColors.textTertiary),
+          ? Icon(Icons.check_circle, color: primaryColor)
+          : Icon(Icons.circle_outlined, color: textTertiary),
       onTap: () {
         setState(() => _permissionMode = mode);
       },
@@ -352,10 +403,14 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
     required SystemPromptMode mode,
     required String label,
     required IconData icon,
+    required Color backgroundColor,
+    required Color primaryColor,
+    required Color dividerColor,
+    required Color textSecondary,
   }) {
     final isSelected = _systemPromptMode == mode;
     return Material(
-      color: isSelected ? AppColors.primary : AppColors.background,
+      color: isSelected ? primaryColor : backgroundColor,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: () {
@@ -367,7 +422,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: isSelected ? AppColors.primary : AppColors.divider,
+              color: isSelected ? primaryColor : dividerColor,
               width: isSelected ? 2 : 1,
             ),
           ),
@@ -377,7 +432,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
               Icon(
                 icon,
                 size: 18,
-                color: isSelected ? Colors.white : AppColors.textSecondary,
+                color: isSelected ? Colors.white : textSecondary,
               ),
               const SizedBox(width: 8),
               Text(
@@ -385,7 +440,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: isSelected ? Colors.white : AppColors.textSecondary,
+                  color: isSelected ? Colors.white : textSecondary,
                 ),
               ),
             ],
