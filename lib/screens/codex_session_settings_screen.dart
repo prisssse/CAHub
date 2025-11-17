@@ -193,6 +193,23 @@ class _CodexSessionSettingsScreenState extends State<CodexSessionSettingsScreen>
               });
             },
           ),
+          const SizedBox(height: 12),
+          _buildSwitchCard(
+            title: '隐藏工具调用',
+            subtitle: '不显示工具调用和返回结果',
+            icon: Icons.visibility_off,
+            value: _currentSettings.hideToolCalls,
+            cardColor: cardColor,
+            dividerColor: dividerColor,
+            primaryColor: primaryColor,
+            onChanged: (value) {
+              setState(() {
+                _currentSettings = _currentSettings.copyWith(
+                  hideToolCalls: value,
+                );
+              });
+            },
+          ),
         ],
       ),
     );

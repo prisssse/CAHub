@@ -22,6 +22,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
   late bool _includeProjectSettings;
   late SystemPromptMode _systemPromptMode;
   late String _systemPromptPreset;
+  late bool _hideToolCalls;
 
   final List<String> _availablePresets = [
     'default',
@@ -41,6 +42,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
     );
     _includeProjectSettings =
         widget.settings.settingSources.contains('project');
+    _hideToolCalls = widget.settings.hideToolCalls;
   }
 
   @override
@@ -65,6 +67,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
           ? _systemPromptController.text.trim()
           : null,
       settingSources: settingSources,
+      hideToolCalls: _hideToolCalls,
     );
 
     widget.onSave(updated);
@@ -322,6 +325,28 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
                   value: _includeProjectSettings,
                   onChanged: (value) {
                     setState(() => _includeProjectSettings = value);
+                  },
+                  activeColor: primaryColor,
+                ),
+                Divider(height: 1, color: dividerColor),
+                SwitchListTile(
+                  title: Text(
+                    '隐藏工具调用',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: textPrimary,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '不显示工具调用和返回结果',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: textSecondary,
+                    ),
+                  ),
+                  value: _hideToolCalls,
+                  onChanged: (value) {
+                    setState(() => _hideToolCalls = value);
                   },
                   activeColor: primaryColor,
                 ),

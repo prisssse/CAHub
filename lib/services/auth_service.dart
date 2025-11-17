@@ -4,9 +4,11 @@ import 'dart:convert';
 class AuthService {
   static const String _fileName = 'user_auth.json';
   static AuthService? _instance;
+  static const int _sessionDurationHours = 24; // 会话持续时间（小时）
 
   String? _username;
-  String? _password; // 只在内存中保存，不持久化
+  String? _password;
+  DateTime? _loginTime; // 登录时间戳
   bool _isInitialized = false;
 
   AuthService._();
@@ -21,7 +23,7 @@ class AuthService {
 
   Future<void> _init() async {
     if (!_isInitialized) {
-      await _loadUsername();
+      await _loadCredentials();
       _isInitialized = true;
     }
   }
@@ -45,7 +47,16 @@ class AuthService {
     return _fileName;
   }
 
-  Future<void> _loadUsername() async {
+  // 简单的编码（Base64），不是加密但至少不是明文
+  String _encodePassword(String password) {
+    return base64Encode(utf8.encode(password));
+  }
+
+  String _decodePassword(String encoded) {
+    return utf8.decode(base64Decode(encoded));
+  }
+
+  Future<void> _loadCredentials() async {
     try {
       final filePath = _getAuthFilePath();
       final file = File(filePath);
@@ -53,43 +64,78 @@ class AuthService {
         final contents = await file.readAsString();
         final data = json.decode(contents) as Map<String, dynamic>;
         _username = data['username'] as String?;
-        print('DEBUG AuthService: Loaded username from: $filePath');
-        // 不加载密码，只加载用户名
+
+        // 加载密码和登录时间
+        final encodedPassword = data['password'] as String?;
+        final loginTimeStr = data['login_time'] as String?;
+
+        if (encodedPassword != null && loginTimeStr != null) {
+          final loginTime = DateTime.parse(loginTimeStr);
+          final now = DateTime.now();
+
+          // 检查是否在24小时内
+          if (now.difference(loginTime).inHours < _sessionDurationHours) {
+            _password = _decodePassword(encodedPassword);
+            _loginTime = loginTime;
+            print('DEBUG AuthService: Session valid, auto-login successful');
+          } else {
+            print('DEBUG AuthService: Session expired, need re-login');
+          }
+        }
+
+        print('DEBUG AuthService: Loaded credentials from: $filePath');
       }
     } catch (e) {
-      print('Error loading username: $e');
+      print('Error loading credentials: $e');
     }
   }
 
-  Future<void> _saveUsername() async {
+  Future<void> _saveCredentials() async {
     try {
       final filePath = _getAuthFilePath();
       final file = File(filePath);
-      await file.writeAsString(json.encode({
+      final data = <String, dynamic>{
         'username': _username,
-      }));
-      print('DEBUG AuthService: Saved username to: $filePath');
+      };
+
+      // 保存密码和登录时间
+      if (_password != null && _loginTime != null) {
+        data['password'] = _encodePassword(_password!);
+        data['login_time'] = _loginTime!.toIso8601String();
+      }
+
+      await file.writeAsString(json.encode(data));
+      print('DEBUG AuthService: Saved credentials to: $filePath');
     } catch (e) {
-      print('Error saving username: $e');
+      print('Error saving credentials: $e');
     }
   }
 
-  // 设置登录凭证（密码只保存在内存中）
-  void setCredentials(String username, String password) {
+  // 设置登录凭证并保存（带时间戳）
+  Future<void> setCredentials(String username, String password) async {
     _username = username;
     _password = password;
+    _loginTime = DateTime.now();
+    await _saveCredentials();
   }
 
-  // 保存用户名（供下次自动填充）
+  // 保存用户名（供下次自动填充，不保存密码）
   Future<void> saveUsername(String username) async {
     _username = username;
-    await _saveUsername();
+    // 只保存用户名，不保存密码
+    final filePath = _getAuthFilePath();
+    final file = File(filePath);
+    await file.writeAsString(json.encode({
+      'username': _username,
+    }));
   }
 
-  // 登出（只清除密码，保留用户名供下次自动填充）
+  // 登出（清除密码和登录时间，保留用户名供下次自动填充）
   Future<void> logout() async {
-    _password = null; // 只清除密码
-    // 保留 _username 和文件，这样下次启动时可以自动填充用户名
+    _password = null;
+    _loginTime = null;
+    // 只保存用户名
+    await saveUsername(_username ?? '');
   }
 
   // 检查是否已登录（需要同时有用户名和密码）

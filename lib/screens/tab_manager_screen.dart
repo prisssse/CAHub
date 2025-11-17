@@ -15,7 +15,6 @@ import '../services/notification_sound_service.dart';
 import 'chat_screen.dart';
 import 'home_screen.dart';
 import 'sessions/session_list_screen.dart';
-import '../widgets/custom_title_bar.dart';
 
 // 定义标签页类型
 enum TabType {
@@ -417,16 +416,10 @@ class _TabManagerScreenState extends State<TabManagerScreen>
     final primaryColor = Theme.of(context).colorScheme.primary;
     final dividerColor = Theme.of(context).dividerColor;
 
-    return Column(
-      children: [
-        // 自定义标题栏
-        CustomTitleBar(
-          title: _getAppBarTitle(),
-        ),
-        // AppBar（只包含TabBar）
-        Expanded(
-          child: Scaffold(
-            appBar: PreferredSize(
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_getAppBarTitle()),
+        bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: Container(
             color: cardColor,
@@ -554,13 +547,10 @@ class _TabManagerScreenState extends State<TabManagerScreen>
           ),
         ),
       ),
-            body: TabBarView(
-              controller: _tabController,
-              children: _tabs.map((tab) => tab.content).toList(),
-            ),
-          ),
-        ),
-      ],
+      body: TabBarView(
+        controller: _tabController,
+        children: _tabs.map((tab) => tab.content).toList(),
+      ),
     );
   }
 }

@@ -7,10 +7,12 @@ import '../core/utils/platform_helper.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
+  final bool hideToolCalls;
 
   const MessageBubble({
     super.key,
     required this.message,
+    this.hideToolCalls = false,
   });
 
   @override
@@ -37,6 +39,19 @@ class MessageBubble extends StatelessWidget {
           ),
         ),
       );
+    }
+
+    // 如果启用了隐藏工具调用，检查消息是否只包含工具调用内容
+    if (hideToolCalls) {
+      final hasNonToolContent = message.contentBlocks.any((block) =>
+        block.type != ContentBlockType.toolUse &&
+        block.type != ContentBlockType.toolResult
+      );
+
+      // 如果消息只包含工具调用内容，完全隐藏这个消息气泡
+      if (!hasNonToolContent) {
+        return const SizedBox.shrink();
+      }
     }
 
     return Align(
@@ -85,6 +100,8 @@ class MessageBubble extends StatelessWidget {
         return _buildThinkingBlock(context, block.thinking ?? '');
 
       case ContentBlockType.toolUse:
+        // 如果设置了隐藏工具调用，返回空 widget
+        if (hideToolCalls) return const SizedBox.shrink();
         return _buildToolUseBlock(
           context,
           name: block.name ?? 'unknown',
@@ -92,6 +109,8 @@ class MessageBubble extends StatelessWidget {
         );
 
       case ContentBlockType.toolResult:
+        // 如果设置了隐藏工具调用，返回空 widget
+        if (hideToolCalls) return const SizedBox.shrink();
         return _buildToolResultBlock(
           context,
           content: block.content,

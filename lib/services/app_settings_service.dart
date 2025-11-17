@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import '../models/user_settings.dart';
 import '../models/codex_user_settings.dart';
+import '../models/session_settings.dart';
 
 /// Agent 模式
 enum AgentMode {
@@ -51,10 +52,14 @@ class AppSettingsService {
   double _notificationVolume = 0.5; // 通知音量（0.0 - 1.0）
   FontFamilyOption _fontFamily = FontFamilyOption.notoSerifSC; // 默认Noto Serif SC字体
   FontSizeOption _fontSize = FontSizeOption.normal; // 默认正常字号
+  bool _hideToolCalls = false; // 全局隐藏工具调用设置
 
   // 全局 Agent 设置（内存缓存，从后端加载）
   ClaudeUserSettings? _claudeSettings;
   CodexUserSettings? _codexSettings;
+
+  // 默认项目设置（用于新会话）
+  SessionSettings? _defaultSessionSettings;
 
   // 通知回调（当设置变化时）
   final List<VoidCallback> _listeners = [];
@@ -68,10 +73,14 @@ class AppSettingsService {
   double get notificationVolume => _notificationVolume;
   FontFamilyOption get fontFamily => _fontFamily;
   FontSizeOption get fontSize => _fontSize;
+  bool get hideToolCalls => _hideToolCalls;
 
   // Getters - Agent 全局设置
   ClaudeUserSettings? get claudeSettings => _claudeSettings;
   CodexUserSettings? get codexSettings => _codexSettings;
+
+  // Getter - 默认项目设置
+  SessionSettings? get defaultSessionSettings => _defaultSessionSettings;
 
   // 初始化方法
   Future<void> initialize() async {
@@ -131,6 +140,19 @@ class AppSettingsService {
             orElse: () => FontSizeOption.normal,
           );
         }
+
+        // 加载隐藏工具调用设置
+        _hideToolCalls = json['hide_tool_calls'] ?? false;
+
+        // 加载默认项目设置
+        final defaultSessionJson = json['default_session_settings'] as Map<String, dynamic>?;
+        if (defaultSessionJson != null) {
+          try {
+            _defaultSessionSettings = SessionSettings.fromJson(defaultSessionJson);
+          } catch (e) {
+            print('Error parsing default session settings: $e');
+          }
+        }
       }
     } catch (e) {
       print('Error loading app settings: $e');
@@ -149,7 +171,13 @@ class AppSettingsService {
         'notification_volume': _notificationVolume,
         'font_family': _fontFamily.name,
         'font_size': _fontSize.name,
+        'hide_tool_calls': _hideToolCalls,
       };
+
+      // 保存默认项目设置
+      if (_defaultSessionSettings != null) {
+        json['default_session_settings'] = _defaultSessionSettings!.toJson();
+      }
 
       await file.writeAsString(jsonEncode(json));
     } catch (e) {
@@ -188,6 +216,12 @@ class AppSettingsService {
     _notifyListeners();
   }
 
+  void setHideToolCalls(bool value) {
+    _hideToolCalls = value;
+    _saveSettings();
+    _notifyListeners();
+  }
+
   // Setters - Agent 全局设置（缓存到内存）
   void setClaudeSettings(ClaudeUserSettings settings) {
     _claudeSettings = settings;
@@ -207,6 +241,29 @@ class AppSettingsService {
   // 获取或创建默认 Codex 设置
   CodexUserSettings getOrCreateCodexSettings(String userId) {
     return _codexSettings ?? CodexUserSettings.defaults(userId);
+  }
+
+  // Setter - 默认项目设置
+  void setDefaultSessionSettings(SessionSettings? settings) {
+    _defaultSessionSettings = settings;
+    _saveSettings();
+    _notifyListeners();
+  }
+
+  // 获取默认项目设置（用于创建新会话）
+  SessionSettings? getDefaultSessionSettingsForNewSession(String sessionId, String cwd) {
+    if (_defaultSessionSettings == null) return null;
+
+    // 复制默认设置，但使用新的 sessionId 和 cwd
+    return SessionSettings(
+      sessionId: sessionId,
+      cwd: cwd,
+      permissionMode: _defaultSessionSettings!.permissionMode,
+      systemPrompt: _defaultSessionSettings!.systemPrompt,
+      systemPromptPreset: _defaultSessionSettings!.systemPromptPreset,
+      systemPromptMode: _defaultSessionSettings!.systemPromptMode,
+      settingSources: _defaultSessionSettings!.settingSources,
+    );
   }
 
   // 监听器管理

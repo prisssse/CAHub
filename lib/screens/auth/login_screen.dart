@@ -86,8 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
         final authService = await AuthService.getInstance();
         final configService = await ConfigService.getInstance();
 
-        authService.setCredentials(username, password);
-        await authService.saveUsername(username);
+        await authService.setCredentials(username, password);
         print('DEBUG LoginScreen: About to save API URL: $apiUrl');
         await configService.setApiBaseUrl(apiUrl);
         print('DEBUG LoginScreen: API URL saved, calling onLoginSuccess');

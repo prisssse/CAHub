@@ -8,6 +8,7 @@ class CodexUserSettings {
   final bool webSearchEnabled;
   final bool skipGitRepoCheck;
   final String? model; // 可选模型名称
+  final bool hideToolCalls; // 是否隐藏工具调用信息
 
   CodexUserSettings({
     required this.userId,
@@ -18,6 +19,7 @@ class CodexUserSettings {
     required this.webSearchEnabled,
     required this.skipGitRepoCheck,
     this.model,
+    this.hideToolCalls = false,
   });
 
   factory CodexUserSettings.defaults(String userId) {
@@ -42,6 +44,7 @@ class CodexUserSettings {
       webSearchEnabled: json['web_search_enabled'] as bool? ?? false,
       skipGitRepoCheck: json['skip_git_repo_check'] as bool? ?? false,
       model: json['model'] as String?,
+      hideToolCalls: json['hide_tool_calls'] as bool? ?? false,
     );
   }
 
@@ -53,6 +56,7 @@ class CodexUserSettings {
       'network_access_enabled': networkAccessEnabled,
       'web_search_enabled': webSearchEnabled,
       'skip_git_repo_check': skipGitRepoCheck,
+      'hide_tool_calls': hideToolCalls,
     };
     if (model != null) {
       json['model'] = model;
@@ -69,6 +73,7 @@ class CodexUserSettings {
     bool? webSearchEnabled,
     bool? skipGitRepoCheck,
     String? model,
+    bool? hideToolCalls,
   }) {
     return CodexUserSettings(
       userId: userId ?? this.userId,
@@ -79,6 +84,7 @@ class CodexUserSettings {
       webSearchEnabled: webSearchEnabled ?? this.webSearchEnabled,
       skipGitRepoCheck: skipGitRepoCheck ?? this.skipGitRepoCheck,
       model: model ?? this.model,
+      hideToolCalls: hideToolCalls ?? this.hideToolCalls,
     );
   }
 }

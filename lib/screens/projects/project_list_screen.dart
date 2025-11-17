@@ -401,15 +401,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
-        title: Row(
-          children: [
-            const Text('项目'),
-            const SizedBox(width: 12),
-            Flexible(
-              child: _buildBackendSelector(primaryColor, cardColor, backgroundColor),
-            ),
-          ],
-        ),
+        title: _buildBackendSelector(primaryColor, cardColor, backgroundColor),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),

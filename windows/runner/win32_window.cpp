@@ -273,16 +273,21 @@ void Win32Window::OnDestroy() {
 }
 
 void Win32Window::UpdateTheme(HWND const window) {
-  DWORD light_mode;
-  DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
+  // 设置标题栏颜色为 #fff8f0 (RGB: 255, 248, 240)
+  // Windows 使用 BGR 格式的 COLORREF，并且需要转换为 0x00BBGGRR 格式
+  COLORREF caption_color = 0x00F0F8FF;  // BGR 格式: F0 F8 FF (#fff8f0)
 
-  if (result == ERROR_SUCCESS) {
-    BOOL enable_dark_mode = light_mode == 0;
-    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                          &enable_dark_mode, sizeof(enable_dark_mode));
-  }
+  // DWMWA_CAPTION_COLOR 需要 Windows 11 Build 22000 或更高版本
+  // 值为 35，如果 SDK 太旧可能没有定义
+  #ifndef DWMWA_CAPTION_COLOR
+  #define DWMWA_CAPTION_COLOR 35
+  #endif
+
+  DwmSetWindowAttribute(window, DWMWA_CAPTION_COLOR,
+                        &caption_color, sizeof(caption_color));
+
+  // 禁用深色模式以确保浅色标题栏文字
+  BOOL enable_dark_mode = FALSE;
+  DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        &enable_dark_mode, sizeof(enable_dark_mode));
 }

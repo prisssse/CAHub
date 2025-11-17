@@ -6,8 +6,10 @@ import '../../services/app_settings_service.dart';
 import '../../services/notification_sound_service.dart';
 import '../../models/user_settings.dart';
 import '../../models/codex_user_settings.dart';
+import '../../models/session_settings.dart';
 import '../../repositories/project_repository.dart';
 import '../../repositories/codex_repository.dart';
+import '../session_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final ProjectRepository claudeRepository;
@@ -33,6 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late double _notificationVolume;
   late FontFamilyOption _fontFamily;
   late FontSizeOption _fontSize;
+  late bool _hideToolCalls;
   String _apiEndpoint = 'http://192.168.31.99:8207';
 
   // Claude settings
@@ -52,6 +55,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _notificationVolume = _settingsService.notificationVolume;
     _fontFamily = _settingsService.fontFamily;
     _fontSize = _settingsService.fontSize;
+    _hideToolCalls = _settingsService.hideToolCalls;
 
     // Load global agent settings
     _loadGlobalSettings();
@@ -240,6 +244,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         subtitle: Text(_claudeSettings?.advancedOptions != null && _claudeSettings!.advancedOptions!.isNotEmpty ? '已配置 ${_claudeSettings!.advancedOptions!.length} 个参数' : '未配置', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
                         trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
                         onTap: () => _showAdvancedOptionsDialog(),
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      ListTile(
+                        title: Text('默认项目设置', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text(_settingsService.defaultSessionSettings != null ? '已配置' : '未配置', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
+                        onTap: () => _showDefaultProjectSettingsDialog(),
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      SwitchListTile(
+                        title: Text('全局隐藏工具调用', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text('所有会话默认不显示工具调用', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        value: _hideToolCalls,
+                        onChanged: (value) {
+                          setState(() => _hideToolCalls = value);
+                          _settingsService.setHideToolCalls(value);
+                        },
+                        activeColor: primaryColor,
                       ),
                     ],
                   ),
@@ -1030,5 +1052,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     }
+  }
+
+  void _showDefaultProjectSettingsDialog() {
+    // 获取或创建默认设置
+    SessionSettings currentSettings = _settingsService.defaultSessionSettings ??
+        SessionSettings(
+          sessionId: 'default',
+          cwd: '',
+        );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SessionSettingsScreen(
+          settings: currentSettings,
+          onSave: (newSettings) {
+            _settingsService.setDefaultSessionSettings(newSettings);
+            setState(() {}); // 刷新界面显示状态
+          },
+        ),
+      ),
+    );
   }
 }

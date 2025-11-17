@@ -28,6 +28,7 @@ class SessionSettings {
   final String? systemPromptPreset; // Preset name: advanced, default, concise, creative
   final SystemPromptMode systemPromptMode;
   final List<String> settingSources; // user is required, project is optional
+  final bool hideToolCalls; // 是否隐藏工具调用信息
 
   SessionSettings({
     required this.sessionId,
@@ -37,6 +38,7 @@ class SessionSettings {
     this.systemPromptPreset,
     this.systemPromptMode = SystemPromptMode.custom,
     List<String>? settingSources,
+    this.hideToolCalls = false,
   }) : settingSources = settingSources ?? ['user'];
 
   SessionSettings copyWith({
@@ -47,6 +49,7 @@ class SessionSettings {
     String? systemPromptPreset,
     SystemPromptMode? systemPromptMode,
     List<String>? settingSources,
+    bool? hideToolCalls,
   }) {
     return SessionSettings(
       sessionId: sessionId ?? this.sessionId,
@@ -56,6 +59,7 @@ class SessionSettings {
       systemPromptPreset: systemPromptPreset ?? this.systemPromptPreset,
       systemPromptMode: systemPromptMode ?? this.systemPromptMode,
       settingSources: settingSources ?? this.settingSources,
+      hideToolCalls: hideToolCalls ?? this.hideToolCalls,
     );
   }
 
@@ -65,6 +69,7 @@ class SessionSettings {
       'cwd': cwd,
       'permission_mode': permissionMode.value,
       'setting_sources': settingSources,
+      'hide_tool_calls': hideToolCalls,
     };
 
     // Add system_prompt based on mode
@@ -111,6 +116,7 @@ class SessionSettings {
       settingSources: json['setting_sources'] != null
           ? List<String>.from(json['setting_sources'])
           : ['user'],
+      hideToolCalls: json['hide_tool_calls'] ?? false,
     );
   }
 }
