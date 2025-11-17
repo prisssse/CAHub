@@ -157,7 +157,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'Claude Code Mobile',
+                    'CodeAgent Hub',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 28,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/platform_helper.dart';
+import '../repositories/api_codex_repository.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/session_repository.dart';
 import '../repositories/codex_repository.dart';
@@ -13,6 +14,8 @@ import '../services/config_service.dart';
 import '../services/notification_sound_service.dart';
 import 'chat_screen.dart';
 import 'home_screen.dart';
+import 'sessions/session_list_screen.dart';
+import '../widgets/custom_title_bar.dart';
 
 // 定义标签页类型
 enum TabType {
@@ -370,16 +373,60 @@ class _TabManagerScreenState extends State<TabManagerScreen>
     super.dispose();
   }
 
+  // 获取AppBar标题
+  String _getAppBarTitle() {
+    if (_tabs.isEmpty) return 'CodeAgent Hub';
+
+    final currentTab = _tabs[_currentIndex];
+
+    // 如果是主页标签
+    if (currentTab.type == TabType.home) {
+      final content = currentTab.content;
+
+      // 检查是否是 SessionListScreen（项目的会话列表）
+      if (content is SessionListScreen) {
+        // 获取 SessionListScreen 的 repository 来判断模式
+        if (content.repository is CodexRepository) {
+          return 'Codex';
+        } else {
+          return 'Claude Code';
+        }
+      }
+
+      // 如果是 HomeScreen，显示 CodeAgent Hub
+      return 'CodeAgent Hub';
+    }
+
+    // 如果是对话标签，检查是哪个后端
+    if (currentTab.type == TabType.chat && currentTab.content is ChatScreen) {
+      final chatScreen = currentTab.content as ChatScreen;
+      // 判断repository类型
+      if (chatScreen.repository is ApiCodexRepository) {
+        return 'Codex';
+      } else {
+        return 'Claude Code';
+      }
+    }
+
+    return 'CodeAgent Hub';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cardColor = Theme.of(context).cardColor;
     final primaryColor = Theme.of(context).colorScheme.primary;
     final dividerColor = Theme.of(context).dividerColor;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Claude Code Mobile'),
-        bottom: PreferredSize(
+    return Column(
+      children: [
+        // 自定义标题栏
+        CustomTitleBar(
+          title: _getAppBarTitle(),
+        ),
+        // AppBar（只包含TabBar）
+        Expanded(
+          child: Scaffold(
+            appBar: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: Container(
             color: cardColor,
@@ -507,10 +554,13 @@ class _TabManagerScreenState extends State<TabManagerScreen>
           ),
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: _tabs.map((tab) => tab.content).toList(),
-      ),
+            body: TabBarView(
+              controller: _tabController,
+              children: _tabs.map((tab) => tab.content).toList(),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
