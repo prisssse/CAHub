@@ -42,7 +42,7 @@ dependencies:
   http: ^1.1.0
 
   # Audio player for notification sounds
-  audioplayers: ^6.1.0
+  audioplayers: ^6.4.0
 
 dev_dependencies:
   flutter_test:

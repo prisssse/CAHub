@@ -266,6 +266,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
                             fontWeight: FontWeight.w600,
                             color: textPrimary,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
                         Text(
