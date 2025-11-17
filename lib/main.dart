@@ -71,6 +71,15 @@ class _MyAppState extends State<MyApp> {
       title: AppConfig.appName,
       theme: theme,
       debugShowCheckedModeBanner: false,
+      builder: (context, child) {
+        // 应用全局字号缩放
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaleFactor: _settingsService.fontSize.scale,
+          ),
+          child: child!,
+        );
+      },
       home: _isInitializing
           ? Scaffold(
               body: Center(

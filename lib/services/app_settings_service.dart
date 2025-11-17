@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import '../models/user_settings.dart';
 import '../models/codex_user_settings.dart';
 
@@ -81,19 +81,29 @@ class AppSettingsService {
   }
 
   // 获取配置文件路径
-  Future<String> _getSettingsFilePath() async {
-    final directory = await getApplicationSupportDirectory();
-    final appDir = Directory('${directory.path}/CCMobile');
-    if (!await appDir.exists()) {
-      await appDir.create(recursive: true);
+  String _getSettingsFilePath() {
+    if (Platform.isAndroid) {
+      // Android: 使用应用的data目录
+      return '/data/data/com.example.cc_mobile/files/app_settings.json';
+    } else if (Platform.isWindows) {
+      // Windows: 使用APPDATA目录
+      final appData = Platform.environment['APPDATA'];
+      if (appData != null) {
+        final dir = Directory('$appData\\CCMobile');
+        if (!dir.existsSync()) {
+          dir.createSync(recursive: true);
+        }
+        return '$appData\\CCMobile\\app_settings.json';
+      }
     }
-    return '${appDir.path}/app_settings.json';
+    // 其他平台或无法获取路径时，使用当前目录
+    return 'app_settings.json';
   }
 
   // 加载设置
   Future<void> _loadSettings() async {
     try {
-      final filePath = await _getSettingsFilePath();
+      final filePath = _getSettingsFilePath();
       final file = File(filePath);
 
       if (await file.exists()) {
@@ -130,7 +140,7 @@ class AppSettingsService {
   // 保存设置
   Future<void> _saveSettings() async {
     try {
-      final filePath = await _getSettingsFilePath();
+      final filePath = _getSettingsFilePath();
       final file = File(filePath);
 
       final json = {
