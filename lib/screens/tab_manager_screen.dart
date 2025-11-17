@@ -27,6 +27,8 @@ class TabInfo {
   final Widget content;
   bool hasNewReply; // 是否有新回复（用于标签高亮）
   final ValueNotifier<bool> hasNewReplyNotifier; // 新回复通知器
+  final Widget? previousContent; // 上一个界面（用于返回）
+  final String? previousTitle; // 上一个界面的标题
 
   TabInfo({
     required this.id,
@@ -34,6 +36,8 @@ class TabInfo {
     required this.title,
     required this.content,
     this.hasNewReply = false,
+    this.previousContent,
+    this.previousTitle,
   }) : hasNewReplyNotifier = ValueNotifier<bool>(hasNewReply);
 
   void dispose() {
@@ -160,17 +164,42 @@ class _TabManagerScreenState extends State<TabManagerScreen>
 
     // 替换当前标签页（需要先dispose旧的）
     setState(() {
+      // 保存当前界面，以便返回时恢复
+      final previousContent = _tabs[_currentIndex].content;
+      final previousTitle = _tabs[_currentIndex].title;
+
       _tabs[_currentIndex].dispose();
       _tabs[_currentIndex] = TabInfo(
         id: 'chat_$sessionId',
         type: TabType.chat,
         title: sessionName,
         content: wrappedWidget,
+        previousContent: previousContent,
+        previousTitle: previousTitle,
       );
     });
   }
 
   void _handleBackToHome(int tabIndex) async {
+    final currentTab = _tabs[tabIndex];
+
+    // 如果有保存的上一个界面，则恢复到上一个界面
+    if (currentTab.previousContent != null) {
+      final newTab = TabInfo(
+        id: 'home_${DateTime.now().millisecondsSinceEpoch}',
+        type: TabType.home,
+        title: currentTab.previousTitle ?? '主页',
+        content: currentTab.previousContent!,
+      );
+
+      setState(() {
+        _tabs[tabIndex].dispose();
+        _tabs[tabIndex] = newTab;
+      });
+      return;
+    }
+
+    // 如果没有保存的上一个界面，则创建新的主页
     // 从 ConfigService 读取当前的后端选择，作为标签页的初始模式
     final configService = await ConfigService.getInstance();
     final preferredBackend = configService.preferredBackend;
