@@ -1,5 +1,6 @@
 import '../models/project.dart';
 import '../models/session.dart';
+import '../models/user_settings.dart';
 import 'project_repository.dart';
 
 class MockProjectRepository implements ProjectRepository {
@@ -109,5 +110,17 @@ class MockProjectRepository implements ProjectRepository {
       'sessions': 10,
       'agentRuns': 4,
     };
+  }
+
+  @override
+  Future<ClaudeUserSettings> getUserSettings(String userId) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    return ClaudeUserSettings.defaults(userId);
+  }
+
+  @override
+  Future<void> updateUserSettings(String userId, ClaudeUserSettings settings) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    // Mock implementation - do nothing
   }
 }

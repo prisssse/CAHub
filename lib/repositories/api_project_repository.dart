@@ -1,5 +1,6 @@
 import '../models/project.dart';
 import '../models/session.dart';
+import '../models/user_settings.dart';
 import '../services/api_service.dart';
 import 'project_repository.dart';
 
@@ -123,5 +124,23 @@ class ApiProjectRepository implements ProjectRepository {
       'sessions': result['sessions_loaded'] as int? ?? 0,
       'agentRuns': result['agent_runs_loaded'] as int? ?? 0,
     };
+  }
+
+  @override
+  Future<ClaudeUserSettings> getUserSettings(String userId) async {
+    try {
+      final data = await _apiService.getUserSettings(userId);
+      return ClaudeUserSettings.fromJson({
+        'user_id': userId,
+        ...data,
+      });
+    } catch (e) {
+      return ClaudeUserSettings.defaults(userId);
+    }
+  }
+
+  @override
+  Future<void> updateUserSettings(String userId, ClaudeUserSettings settings) async {
+    await _apiService.updateUserSettings(userId, settings.toJson());
   }
 }

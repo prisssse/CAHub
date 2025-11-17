@@ -5,6 +5,7 @@ class AppTheme {
   static ThemeData generate({
     required bool isDark,
     required String? fontFamily,
+    double fontScale = 1.0,
   }) {
     final brightness = isDark ? Brightness.dark : Brightness.light;
 
@@ -105,14 +106,14 @@ class AppTheme {
         foregroundColor: Colors.white,
       ),
 
-      // 文字主题
+      // 文字主题（应用字号缩放）
       textTheme: TextTheme(
-        bodyLarge: TextStyle(fontSize: 16, color: textPrimary, fontFamily: fontFamily),
-        bodyMedium: TextStyle(fontSize: 14, color: textPrimary, fontFamily: fontFamily),
-        bodySmall: TextStyle(fontSize: 12, color: textSecondary, fontFamily: fontFamily),
-        titleLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textPrimary, fontFamily: fontFamily),
-        titleMedium: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: textPrimary, fontFamily: fontFamily),
-        titleSmall: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: textPrimary, fontFamily: fontFamily),
+        bodyLarge: TextStyle(fontSize: 16 * fontScale, color: textPrimary, fontFamily: fontFamily),
+        bodyMedium: TextStyle(fontSize: 14 * fontScale, color: textPrimary, fontFamily: fontFamily),
+        bodySmall: TextStyle(fontSize: 12 * fontScale, color: textSecondary, fontFamily: fontFamily),
+        titleLarge: TextStyle(fontSize: 22 * fontScale, fontWeight: FontWeight.bold, color: textPrimary, fontFamily: fontFamily),
+        titleMedium: TextStyle(fontSize: 18 * fontScale, fontWeight: FontWeight.w600, color: textPrimary, fontFamily: fontFamily),
+        titleSmall: TextStyle(fontSize: 14 * fontScale, fontWeight: FontWeight.w600, color: textPrimary, fontFamily: fontFamily),
       ),
 
       // 设置全局默认字体

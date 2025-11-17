@@ -3,14 +3,19 @@ import '../../core/theme/app_theme.dart';
 import '../../models/project.dart';
 import '../../models/session.dart';
 import '../../repositories/project_repository.dart';
+import '../../repositories/codex_repository.dart';
 import '../../repositories/api_session_repository.dart';
+import '../../repositories/api_codex_repository.dart';
 import '../sessions/session_list_screen.dart';
 import '../settings/settings_screen.dart';
 import '../chat_screen.dart';
 import '../../services/api_service.dart';
+import '../../services/app_settings_service.dart';
+import '../../services/config_service.dart';
 
 class ProjectListScreen extends StatefulWidget {
-  final ProjectRepository repository;
+  final ProjectRepository claudeRepository;
+  final CodexRepository codexRepository;
   final Function({
     required String sessionId,
     required String sessionName,
@@ -22,13 +27,16 @@ class ProjectListScreen extends StatefulWidget {
     required Widget content,
   })? onNavigate;
   final VoidCallback? onLogout;
+  final AgentMode? initialMode; // 初始后端模式，用于锁定标签页的后端选择
 
   const ProjectListScreen({
     super.key,
-    required this.repository,
+    required this.claudeRepository,
+    required this.codexRepository,
     this.onOpenChat,
     this.onNavigate,
     this.onLogout,
+    this.initialMode, // 可选参数
   });
 
   @override
@@ -38,17 +46,47 @@ class ProjectListScreen extends StatefulWidget {
 class _ProjectListScreenState extends State<ProjectListScreen> {
   List<Project> _projects = [];
   bool _isLoading = false;
+  AgentMode _currentMode = AgentMode.claudeCode; // 当前选择的模式
 
   @override
   void initState() {
     super.initState();
+    _loadPreferredBackend();
+  }
+
+  // 从ConfigService加载用户上次选择的后端，或使用提供的初始模式
+  Future<void> _loadPreferredBackend() async {
+    // 如果提供了 initialMode，优先使用它（用于锁定标签页的后端选择）
+    if (widget.initialMode != null) {
+      setState(() {
+        _currentMode = widget.initialMode!;
+      });
+      _loadProjects();
+      return;
+    }
+
+    // 否则从 ConfigService 读取（用于新建标签页）
+    final configService = await ConfigService.getInstance();
+    final preferredBackend = configService.preferredBackend;
+
+    setState(() {
+      if (preferredBackend == 'codex') {
+        _currentMode = AgentMode.codex;
+      } else {
+        _currentMode = AgentMode.claudeCode;
+      }
+    });
+
     _loadProjects();
   }
 
   Future<void> _loadProjects() async {
     setState(() => _isLoading = true);
     try {
-      final projects = await widget.repository.getProjects();
+      // 根据当前模式加载项目
+      final projects = _currentMode == AgentMode.claudeCode
+          ? await widget.claudeRepository.getProjects()
+          : await widget.codexRepository.getProjects();
       setState(() {
         _projects = projects;
         _isLoading = false;
@@ -58,7 +96,38 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     }
   }
 
+  // 切换模式
+  Future<void> _switchMode(AgentMode mode) async {
+    if (_currentMode != mode) {
+      setState(() => _currentMode = mode);
+
+      // 保存到ConfigService
+      final configService = await ConfigService.getInstance();
+      final backendString = mode == AgentMode.codex ? 'codex' : 'claude_code';
+      await configService.setPreferredBackend(backendString);
+
+      _loadProjects();
+    }
+  }
+
   Future<void> _reloadSessionsFromDisk() async {
+    // 注意：reloadSessions 目前只有 Claude Code 支持
+    if (_currentMode == AgentMode.codex) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Codex 模式暂不支持从磁盘加载会话'),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.only(
+            top: 16,
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.of(context).size.height - 100,
+          ),
+        ),
+      );
+      return;
+    }
+
     try {
       // 显示加载对话框
       if (mounted) {
@@ -91,7 +160,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
         );
       }
 
-      final result = await widget.repository.reloadSessions();
+      final result = await widget.claudeRepository.reloadSessions();
 
       if (mounted) {
         Navigator.pop(context); // 关闭加载对话框
@@ -102,6 +171,13 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
               '已加载 ${result['sessions']} 个会话，${result['agentRuns']} 个子任务',
             ),
             backgroundColor: primaryColor,
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
           ),
         );
       }
@@ -116,6 +192,13 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
           SnackBar(
             content: Text('加载失败: $e'),
             backgroundColor: errorColor,
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
           ),
         );
       }
@@ -189,8 +272,13 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
       updatedAt: DateTime.now(),
     );
 
-    final apiService = widget.repository.apiService;
-    final sessionRepository = ApiSessionRepository(apiService);
+    // 根据当前模式选择 repository
+    final apiService = _currentMode == AgentMode.claudeCode
+        ? widget.claudeRepository.apiService
+        : widget.codexRepository.apiService;
+    final dynamic sessionRepository = _currentMode == AgentMode.claudeCode
+        ? ApiSessionRepository(apiService)
+        : ApiCodexRepository(apiService);
 
     if (widget.onOpenChat != null) {
       // 使用回调在新标签页打开
@@ -248,7 +336,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
       );
 
       String? newSessionId;
-      final apiService = widget.repository.apiService;
+      final apiService = widget.claudeRepository.apiService;
 
       await for (var event in apiService.chat(message: firstMessage, cwd: cwd)) {
         if (event['event_type'] == 'session') {
@@ -261,7 +349,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
 
       if (newSessionId != null && mounted) {
         // Fetch the created session
-        final session = await widget.repository.getSession(newSessionId);
+        final session = await widget.claudeRepository.getSession(newSessionId);
 
         Navigator.push(
           context,
@@ -274,7 +362,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                 sessionCount: 1,
                 createdAt: DateTime.now(),
               ),
-              repository: widget.repository,
+              repository: widget.claudeRepository,
             ),
           ),
         ).then((_) => _loadProjects());
@@ -287,6 +375,13 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
           SnackBar(
             content: Text('创建失败: $e'),
             backgroundColor: errorColor,
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
           ),
         );
       }
@@ -306,12 +401,22 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
-        title: const Text('项目'),
+        title: Row(
+          children: [
+            const Text('项目'),
+            const SizedBox(width: 12),
+            Flexible(
+              child: _buildBackendSelector(primaryColor, cardColor, backgroundColor),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _reloadSessionsFromDisk,
-            tooltip: '从 Claude Code 加载会话',
+            tooltip: _currentMode == AgentMode.claudeCode
+                ? '从 Claude Code 加载会话'
+                : '从 Codex 加载会话',
           ),
           IconButton(
             icon: const Icon(Icons.settings),
@@ -320,6 +425,8 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (_) => SettingsScreen(
+                    claudeRepository: widget.claudeRepository,
+                    codexRepository: widget.codexRepository,
                     onLogout: widget.onLogout,
                   ),
                 ),
@@ -388,6 +495,11 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
       ),
       child: InkWell(
         onTap: () {
+          // 根据当前模式选择正确的 repository
+          final repository = _currentMode == AgentMode.claudeCode
+              ? widget.claudeRepository
+              : widget.codexRepository;
+
           if (widget.onNavigate != null) {
             // 在当前标签页中打开项目的会话列表
             widget.onNavigate!(
@@ -395,7 +507,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
               title: project.name,
               content: SessionListScreen(
                 project: project,
-                repository: widget.repository,
+                repository: repository,
                 onOpenChat: widget.onOpenChat,
                 onNavigate: widget.onNavigate,
               ),
@@ -407,7 +519,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
               MaterialPageRoute(
                 builder: (_) => SessionListScreen(
                   project: project,
-                  repository: widget.repository,
+                  repository: repository,
                   onOpenChat: widget.onOpenChat,
                   onNavigate: widget.onNavigate,
                 ),
@@ -479,6 +591,195 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
                     ),
                 ],
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBackendSelector(Color primaryColor, Color cardColor, Color backgroundColor) {
+    return Container(
+      height: 32,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: primaryColor.withOpacity(0.2), width: 1.5),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _showBackendPicker(primaryColor, cardColor),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _currentMode == AgentMode.claudeCode ? Icons.code : Icons.terminal,
+                  size: 16,
+                  color: primaryColor,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _currentMode.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: primaryColor,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.expand_more, size: 18, color: primaryColor),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showBackendPicker(Color primaryColor, Color cardColor) {
+    final appColors = context.appColors;
+    final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: appColors.textTertiary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              '选择后端模式',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildBackendOption(
+              mode: AgentMode.claudeCode,
+              icon: Icons.code,
+              title: 'Claude Code',
+              description: '官方 Claude Code 后端',
+              primaryColor: primaryColor,
+              appColors: appColors,
+              textPrimary: textPrimary,
+            ),
+            const SizedBox(height: 12),
+            _buildBackendOption(
+              mode: AgentMode.codex,
+              icon: Icons.terminal,
+              title: 'Codex',
+              description: 'Codex 兼容后端',
+              primaryColor: primaryColor,
+              appColors: appColors,
+              textPrimary: textPrimary,
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBackendOption({
+    required AgentMode mode,
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color primaryColor,
+    required dynamic appColors,
+    required Color textPrimary,
+  }) {
+    final isSelected = _currentMode == mode;
+    final cardColor = Theme.of(context).cardColor;
+    final dividerColor = Theme.of(context).dividerColor;
+
+    return Material(
+      color: isSelected ? primaryColor.withOpacity(0.1) : cardColor,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          _switchMode(mode);
+          Navigator.pop(context);
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? primaryColor : dividerColor,
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? primaryColor.withOpacity(0.15)
+                      : primaryColor.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: isSelected ? primaryColor : appColors.textSecondary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      description,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: appColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                Icon(
+                  Icons.check_circle,
+                  color: primaryColor,
+                  size: 24,
+                ),
             ],
           ),
         ),

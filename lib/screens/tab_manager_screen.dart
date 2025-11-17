@@ -6,8 +6,10 @@ import '../core/theme/app_theme.dart';
 import '../core/utils/platform_helper.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/session_repository.dart';
+import '../repositories/codex_repository.dart';
 import '../models/project.dart';
 import '../services/app_settings_service.dart';
+import '../services/config_service.dart';
 import '../services/notification_sound_service.dart';
 import 'chat_screen.dart';
 import 'home_screen.dart';
@@ -40,12 +42,14 @@ class TabInfo {
 }
 
 class TabManagerScreen extends StatefulWidget {
-  final ProjectRepository repository;
+  final ProjectRepository claudeRepository;
+  final CodexRepository codexRepository;
   final VoidCallback? onLogout;
 
   const TabManagerScreen({
     super.key,
-    required this.repository,
+    required this.claudeRepository,
+    required this.codexRepository,
     this.onLogout,
   });
 
@@ -71,16 +75,23 @@ class _TabManagerScreenState extends State<TabManagerScreen>
     _addHomeTab();
   }
 
-  void _addHomeTab() {
+  Future<void> _addHomeTab() async {
+    // 从 ConfigService 读取当前的后端选择，作为标签页的初始模式
+    final configService = await ConfigService.getInstance();
+    final preferredBackend = configService.preferredBackend;
+    final initialMode = preferredBackend == 'codex' ? AgentMode.codex : AgentMode.claudeCode;
+
     final newTab = TabInfo(
       id: 'home_${DateTime.now().millisecondsSinceEpoch}',
       type: TabType.home,
       title: '主页',
       content: HomeScreen(
-        repository: widget.repository,
+        claudeRepository: widget.claudeRepository,
+        codexRepository: widget.codexRepository,
         onOpenChat: _openChatInCurrentTab,
         onNavigate: _replaceCurrentTab,
         onLogout: widget.onLogout,
+        initialMode: initialMode, // 传入初始模式，锁定标签页的后端选择
       ),
     );
 
@@ -143,6 +154,7 @@ class _TabManagerScreenState extends State<TabManagerScreen>
         repository: chatWidget.repository,
         onMessageComplete: () => _handleMessageComplete(targetIndex),
         hasNewReplyNotifier: newTab.hasNewReplyNotifier,
+        onBack: () => _handleBackToHome(targetIndex),
       );
     }
 
@@ -155,6 +167,32 @@ class _TabManagerScreenState extends State<TabManagerScreen>
         title: sessionName,
         content: wrappedWidget,
       );
+    });
+  }
+
+  void _handleBackToHome(int tabIndex) async {
+    // 从 ConfigService 读取当前的后端选择，作为标签页的初始模式
+    final configService = await ConfigService.getInstance();
+    final preferredBackend = configService.preferredBackend;
+    final initialMode = preferredBackend == 'codex' ? AgentMode.codex : AgentMode.claudeCode;
+
+    final newTab = TabInfo(
+      id: 'home_${DateTime.now().millisecondsSinceEpoch}',
+      type: TabType.home,
+      title: '主页',
+      content: HomeScreen(
+        claudeRepository: widget.claudeRepository,
+        codexRepository: widget.codexRepository,
+        onOpenChat: _openChatInCurrentTab,
+        onNavigate: _replaceCurrentTab,
+        onLogout: widget.onLogout,
+        initialMode: initialMode,
+      ),
+    );
+
+    setState(() {
+      _tabs[tabIndex].dispose();
+      _tabs[tabIndex] = newTab;
     });
   }
 

@@ -3,14 +3,15 @@ import '../../core/theme/app_theme.dart';
 import '../../models/project.dart';
 import '../../models/session.dart';
 import '../../repositories/project_repository.dart';
+import '../../repositories/codex_repository.dart';
 import '../../services/api_service.dart';
 import '../../repositories/api_session_repository.dart';
+import '../../repositories/api_codex_repository.dart';
 import '../chat_screen.dart';
-import '../tab_navigator_screen.dart';
 
 class SessionListScreen extends StatefulWidget {
   final Project? project;
-  final ProjectRepository repository;
+  final dynamic repository; // 支持 ProjectRepository 或 CodexRepository
   final bool isSelectMode;
   final Function(Session)? onSessionSelected;
   final Function({
@@ -82,7 +83,9 @@ class _SessionListScreenState extends State<SessionListScreen> {
     );
 
     final apiService = widget.repository.apiService;
-    final sessionRepository = ApiSessionRepository(apiService);
+    final dynamic sessionRepository = widget.repository is CodexRepository
+        ? ApiCodexRepository(apiService)
+        : ApiSessionRepository(apiService);
 
     if (widget.onOpenChat != null) {
       // 使用回调在新标签页打开
@@ -199,7 +202,10 @@ class _SessionListScreenState extends State<SessionListScreen> {
           // 如果有 onOpenChat 回调，在新标签页中打开
           if (widget.onOpenChat != null) {
             final apiService = widget.repository.apiService;
-            final sessionRepository = ApiSessionRepository(apiService);
+            // 根据 repository 类型创建对应的 session repository
+            final dynamic sessionRepository = widget.repository is CodexRepository
+                ? ApiCodexRepository(apiService)
+                : ApiSessionRepository(apiService);
 
             widget.onOpenChat!(
               sessionId: session.id,
@@ -210,13 +216,18 @@ class _SessionListScreenState extends State<SessionListScreen> {
               ),
             );
           } else {
-            // 降级到导航方式
+            // 降级到导航方式 - 直接打开 ChatScreen
+            final apiService = widget.repository.apiService;
+            final dynamic sessionRepository = widget.repository is CodexRepository
+                ? ApiCodexRepository(apiService)
+                : ApiSessionRepository(apiService);
+
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => TabNavigatorScreen(
-                  repository: widget.repository,
-                  initialSession: session,
+                builder: (_) => ChatScreen(
+                  session: session,
+                  repository: sessionRepository,
                 ),
               ),
             ).then((_) => _loadSessions());

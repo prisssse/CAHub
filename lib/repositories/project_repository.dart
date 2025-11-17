@@ -1,5 +1,6 @@
 import '../models/project.dart';
 import '../models/session.dart';
+import '../models/user_settings.dart';
 
 abstract class ProjectRepository {
   Future<List<Project>> getProjects();
@@ -12,4 +13,8 @@ abstract class ProjectRepository {
 
   // For creating new sessions
   dynamic get apiService;
+
+  // 用户全局设置
+  Future<ClaudeUserSettings> getUserSettings(String userId);
+  Future<void> updateUserSettings(String userId, ClaudeUserSettings settings);
 }

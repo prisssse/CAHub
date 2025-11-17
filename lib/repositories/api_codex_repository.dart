@@ -1,14 +1,15 @@
 import 'dart:convert';
 
+import '../models/project.dart';
 import '../models/session.dart';
 import '../models/message.dart';
 import '../models/session_settings.dart';
-import '../models/user_settings.dart';
-import '../services/api_service.dart';
-import 'session_repository.dart';
+import '../models/codex_user_settings.dart';
+import '../services/codex_api_service.dart';
+import 'codex_repository.dart';
 
 // Helper class to track message building state
-class _MessageBuildState {
+class _CodexMessageBuildState {
   final contentBlockTypes = <int, String>{};
   final textBlocksBuilder = <int, StringBuffer>{};
   final toolUseBlocks = <int, Map<String, dynamic>>{};
@@ -16,10 +17,10 @@ class _MessageBuildState {
   bool finalized = false;
 }
 
-class ApiSessionRepository implements SessionRepository {
-  final ApiService _apiService;
+class ApiCodexRepository implements CodexRepository {
+  final CodexApiService _apiService;
 
-  ApiSessionRepository(this._apiService);
+  ApiCodexRepository(this._apiService);
 
   @override
   Future<Session> getSession(String id) async {
@@ -38,26 +39,32 @@ class ApiSessionRepository implements SessionRepository {
 
   @override
   Future<List<Message>> getSessionMessages(String sessionId) async {
+    print('DEBUG ApiCodexRepository: getSessionMessages for session=$sessionId');
     final data = await _apiService.getSession(sessionId);
     final messages = data['messages'] as List;
+    print('DEBUG ApiCodexRepository: Raw messages count=${messages.length}');
 
     final result = <Message>[];
 
     for (var m in messages) {
-      // Skip queue-operation and other non-message types
+      // Codex format: {type: "response_item", payload: {type: "message", role: "user", content: [...]}}
       final messageType = m['type'];
-      if (messageType == null || messageType == 'queue-operation') continue;
 
-      // Only process user and assistant types
-      if (messageType != 'user' && messageType != 'assistant') continue;
+      // Only process response_item types
+      if (messageType != 'response_item') continue;
 
-      // Get the nested message object
-      final message = m['message'];
-      if (message == null) continue;
+      // Get the payload
+      final payload = m['payload'];
+      if (payload == null || payload is! Map) continue;
 
-      // Verify role matches type
-      final roleStr = message['role']?.toString();
-      if (roleStr == null || roleStr != messageType) continue;
+      // Check if payload is a message
+      final payloadType = payload['type'];
+      if (payloadType != 'message') continue;
+
+      // Get role from payload
+      final roleStr = payload['role']?.toString();
+      if (roleStr == null) continue;
+      if (roleStr != 'user' && roleStr != 'assistant') continue;
 
       // Get timestamp from top level
       final timestampStr = m['timestamp'];
@@ -70,22 +77,15 @@ class ApiSessionRepository implements SessionRepository {
         continue; // Skip invalid timestamps
       }
 
-      // Parse content blocks
-      final contentBlocks = _parseContentBlocks(message['content']);
+      // Parse content blocks from payload
+      final contentBlocks = _parseContentBlocks(payload['content']);
       if (contentBlocks.isEmpty) continue;
 
       // Determine role
-      // Tool results are marked as 'user' by backend, but should be displayed as assistant messages
-      MessageRole messageRole;
-      if (roleStr == 'user') {
-        final hasOnlyToolResults = contentBlocks.every((block) => block.type == ContentBlockType.toolResult);
-        messageRole = hasOnlyToolResults ? MessageRole.assistant : MessageRole.user;
-      } else {
-        messageRole = MessageRole.assistant;
-      }
+      MessageRole messageRole = roleStr == 'user' ? MessageRole.user : MessageRole.assistant;
 
-      // Use uuid as message ID if available
-      final messageId = m['uuid']?.toString() ?? '${sessionId}_${timestamp.millisecondsSinceEpoch}';
+      // Use timestamp as message ID
+      final messageId = '${sessionId}_${timestamp.millisecondsSinceEpoch}';
 
       result.add(Message.fromBlocks(
         id: messageId,
@@ -95,6 +95,7 @@ class ApiSessionRepository implements SessionRepository {
       ));
     }
 
+    print('DEBUG ApiCodexRepository: Parsed ${result.length} valid messages');
     return result;
   }
 
@@ -106,7 +107,6 @@ class ApiSessionRepository implements SessionRepository {
     }
 
     if (content is String) {
-      // 字符串内容：直接作为 text block
       if (content.isNotEmpty) {
         blocks.add(ContentBlock(type: ContentBlockType.text, text: content));
       }
@@ -115,8 +115,7 @@ class ApiSessionRepository implements SessionRepository {
         if (item is Map<String, dynamic>) {
           final itemType = item['type'];
 
-          // 只处理已知的内容块类型，忽略其他类型
-          if (itemType == 'text' && item['text'] != null) {
+          if ((itemType == 'text' || itemType == 'input_text' || itemType == 'output_text') && item['text'] != null) {
             final text = item['text'].toString();
             if (text.isNotEmpty) {
               blocks.add(ContentBlock(
@@ -145,14 +144,11 @@ class ApiSessionRepository implements SessionRepository {
               isError: item['is_error'] as bool?,
             ));
           }
-          // 如果是未知类型，忽略它（不再添加 fallback）
         } else if (item is String && item.isNotEmpty) {
-          // 列表中的字符串项
           blocks.add(ContentBlock(type: ContentBlockType.text, text: item));
         }
       }
     }
-    // 其他类型的 content 直接忽略（不再转换为字符串）
 
     return blocks;
   }
@@ -162,6 +158,7 @@ class ApiSessionRepository implements SessionRepository {
     required String sessionId,
     required String content,
     SessionSettings? settings,
+    CodexUserSettings? codexSettings,
   }) async {
     final buffer = StringBuffer();
     String? finalResult;
@@ -170,26 +167,29 @@ class ApiSessionRepository implements SessionRepository {
       sessionId: sessionId,
       message: content,
       settings: settings,
+      approvalPolicy: codexSettings?.approvalPolicy,
+      sandboxMode: codexSettings?.sandboxMode,
+      model: codexSettings?.model,
+      modelReasoningEffort: codexSettings?.modelReasoningEffort,
+      networkAccessEnabled: codexSettings?.networkAccessEnabled,
+      webSearchEnabled: codexSettings?.webSearchEnabled,
+      skipGitRepoCheck: codexSettings?.skipGitRepoCheck,
     )) {
       final eventType = event['event_type'];
 
       if (eventType == 'token') {
-        // Token event: {"session_id": "...", "text": "..."}
         final text = event['text'];
         if (text != null && text.isNotEmpty) {
           buffer.write(text);
         }
       } else if (eventType == 'message') {
-        // Message event: {"session_id": "...", "payload": {...}}
         final payload = event['payload'];
         if (payload != null) {
           final payloadType = payload['type'];
 
           if (payloadType == 'result') {
-            // ResultMessage: extract result field
             finalResult = payload['result'] as String?;
           } else if (payloadType == 'assistant') {
-            // AssistantMessage: extract content blocks
             final messageContent = payload['content'];
             if (messageContent != null) {
               final extracted = _extractTextContent(messageContent);
@@ -200,18 +200,16 @@ class ApiSessionRepository implements SessionRepository {
           }
         }
       } else if (eventType == 'done') {
-        // Done event: return accumulated message
         if (finalResult != null && finalResult.isNotEmpty) {
           return Message.assistant(finalResult);
         } else if (buffer.isNotEmpty) {
           return Message.assistant(buffer.toString());
         }
       } else if (eventType == 'error') {
-        throw Exception('Chat error: ${event['message']}');
+        throw Exception('Codex chat error: ${event['message']}');
       }
     }
 
-    // Fallback if no content received
     if (finalResult != null && finalResult.isNotEmpty) {
       return Message.assistant(finalResult);
     } else if (buffer.isNotEmpty) {
@@ -223,21 +221,20 @@ class ApiSessionRepository implements SessionRepository {
   @override
   Future<void> clearSessionMessages(String sessionId) async {
     // API doesn't support clearing messages, this is a no-op
-    // In real implementation, this might call a DELETE endpoint
   }
 
   @override
-  Stream<MessageStreamEvent> sendMessageStream({
-    String? sessionId, // 可选，如果为null则创建新session
+  Stream<CodexMessageStreamEvent> sendMessageStream({
+    String? sessionId,
     required String content,
-    String? cwd, // 工作目录，创建新session时必需
+    String? cwd,
     SessionSettings? settings,
+    CodexUserSettings? codexSettings,
   }) async* {
-    // Track multiple messages by their message IDs (for multi-turn)
-    final messageStates = <String, _MessageBuildState>{}; // message.id -> build state
+    final messageStates = <String, _CodexMessageBuildState>{};
     String? currentMessageId;
-    String? createdSessionId; // 捕获新创建的session ID
-    bool sessionIdEmitted = false; // 标记是否已发送session ID
+    String? createdSessionId;
+    bool sessionIdEmitted = false;
 
     try {
       await for (var event in _apiService.chat(
@@ -245,39 +242,74 @@ class ApiSessionRepository implements SessionRepository {
         message: content,
         cwd: cwd,
         settings: settings,
+        approvalPolicy: codexSettings?.approvalPolicy,
+        sandboxMode: codexSettings?.sandboxMode,
+        model: codexSettings?.model,
+        modelReasoningEffort: codexSettings?.modelReasoningEffort,
+        networkAccessEnabled: codexSettings?.networkAccessEnabled,
+        webSearchEnabled: codexSettings?.webSearchEnabled,
+        skipGitRepoCheck: codexSettings?.skipGitRepoCheck,
       )) {
         final eventType = event['event_type'];
-        print('DEBUG SSE: Received event type: $eventType');
+        print('DEBUG Codex sendMessageStream: eventType=$eventType, event=${event.toString().substring(0, event.toString().length > 200 ? 200 : event.toString().length)}');
 
-        // 捕获session_id（通常在第一个事件中）
+        // Capture session_id
         if (!sessionIdEmitted && event['session_id'] != null) {
           createdSessionId = event['session_id'] as String?;
           if (createdSessionId != null && createdSessionId.isNotEmpty) {
-            // 立即发送session ID给前端
-            yield MessageStreamEvent(sessionId: createdSessionId);
+            yield CodexMessageStreamEvent(sessionId: createdSessionId);
             sessionIdEmitted = true;
-            print('DEBUG SSE: Captured session_id: $createdSessionId');
           }
         }
 
-        // Check if this is a message event with stream_event payload
+        // Handle Codex-specific token events
+        if (eventType == 'token') {
+          final text = event['text'] as String?;
+          if (text != null && text.isNotEmpty) {
+            yield CodexMessageStreamEvent(
+              partialMessage: Message.assistant(text),
+            );
+          }
+          continue;
+        }
+
+        // Handle Codex-specific item.completed events
+        if (eventType == 'message') {
+          final payload = event['payload'];
+          if (payload != null && payload['type'] == 'item.completed') {
+            final item = payload['item'];
+            if (item != null && item['type'] == 'agent_message') {
+              final text = item['text'] as String?;
+              if (text != null && text.isNotEmpty) {
+                yield CodexMessageStreamEvent(
+                  finalMessage: Message.assistant(text),
+                );
+              }
+            }
+            continue;
+          }
+        }
+
+        // Handle done event
+        if (eventType == 'done') {
+          continue;
+        }
+
+        // Check if this is a message event with stream_event payload (Claude Code format)
         bool isStreamEvent = false;
         Map<String, dynamic>? streamEvent;
 
         if (eventType == 'message') {
           final payload = event['payload'];
-          print('DEBUG SSE: Message payload type: ${payload?['type']}');
           if (payload != null && payload['type'] == 'stream_event') {
             isStreamEvent = true;
             streamEvent = payload['event'] as Map<String, dynamic>?;
-            print('DEBUG SSE: Stream event type: ${streamEvent?['type']}');
           }
         }
 
         if (isStreamEvent && streamEvent != null) {
           final streamEventType = streamEvent['type'];
 
-          // message_start: Extract message ID
           if (streamEventType == 'message_start') {
             final message = streamEvent['message'];
             if (message != null) {
@@ -285,19 +317,17 @@ class ApiSessionRepository implements SessionRepository {
               if (messageId != null) {
                 currentMessageId = messageId;
                 if (!messageStates.containsKey(messageId)) {
-                  messageStates[messageId] = _MessageBuildState();
+                  messageStates[messageId] = _CodexMessageBuildState();
                 }
               }
             }
-            continue; // Don't emit anything for message_start
+            continue;
           }
 
-          // Get current state
           final state = currentMessageId != null ? messageStates[currentMessageId!] : null;
           if (state == null) continue;
 
           if (streamEventType == 'content_block_start') {
-            // New content block started
             final index = streamEvent['index'] as int?;
             final contentBlock = streamEvent['content_block'];
 
@@ -320,17 +350,14 @@ class ApiSessionRepository implements SessionRepository {
               }
             }
           } else if (streamEventType == 'content_block_delta') {
-            // Incremental content update
             final index = streamEvent['index'] as int? ?? 0;
             final delta = streamEvent['delta'];
-            print('DEBUG SSE: content_block_delta at index $index, delta type: ${delta?['type']}');
 
             if (delta != null) {
               final deltaType = delta['type'] as String?;
 
               if (deltaType == 'text_delta') {
                 final text = delta['text'] as String?;
-                print('DEBUG SSE: text_delta: "$text"');
                 if (text != null) {
                   if (!state.textBlocksBuilder.containsKey(index)) {
                     state.textBlocksBuilder[index] = StringBuffer();
@@ -341,14 +368,12 @@ class ApiSessionRepository implements SessionRepository {
               } else if (deltaType == 'input_json_delta') {
                 final jsonDelta = delta['partial_json'] as String?;
                 if (jsonDelta != null && state.toolUseBlocks.containsKey(index)) {
-                  // Accumulate JSON for tool input
                   state.toolUseBlocks[index]!['input_json'] =
                       (state.toolUseBlocks[index]!['input_json'] ?? '') + jsonDelta;
                 }
               }
             }
 
-            // Rebuild content blocks from current state
             final blocks = _buildContentBlocks(
               state.contentBlockTypes,
               state.textBlocksBuilder,
@@ -356,10 +381,8 @@ class ApiSessionRepository implements SessionRepository {
               state.finalizedBlocks,
             );
 
-            // Emit partial message with current state
             if (blocks.isNotEmpty) {
-              print('DEBUG SSE: Emitting partialMessage with ${blocks.length} blocks');
-              yield MessageStreamEvent(
+              yield CodexMessageStreamEvent(
                 partialMessage: Message.fromBlocks(
                   id: currentMessageId!,
                   role: MessageRole.assistant,
@@ -368,13 +391,10 @@ class ApiSessionRepository implements SessionRepository {
               );
             }
           } else if (streamEventType == 'content_block_stop') {
-            // Content block completed - finalize any pending tool inputs
             final index = streamEvent['index'] as int?;
             if (index != null) {
-              // Mark this block as finalized
               state.finalizedBlocks.add(index);
 
-              // For tool_use blocks, parse the accumulated JSON
               if (state.toolUseBlocks.containsKey(index)) {
                 final inputJson = state.toolUseBlocks[index]!['input_json'] as String?;
                 if (inputJson != null && inputJson.isNotEmpty) {
@@ -384,14 +404,11 @@ class ApiSessionRepository implements SessionRepository {
                       state.toolUseBlocks[index]!['input'] = decoded;
                     }
                   } catch (e) {
-                    print('Failed to parse tool input JSON: $e');
-                    print('JSON string was: $inputJson');
                     // Keep empty input if JSON parsing fails
                   }
                 }
               }
 
-              // Rebuild and emit message with newly finalized block
               final blocks = _buildContentBlocks(
                 state.contentBlockTypes,
                 state.textBlocksBuilder,
@@ -400,7 +417,7 @@ class ApiSessionRepository implements SessionRepository {
               );
 
               if (blocks.isNotEmpty && currentMessageId != null) {
-                yield MessageStreamEvent(
+                yield CodexMessageStreamEvent(
                   partialMessage: Message.fromBlocks(
                     id: currentMessageId!,
                     role: MessageRole.assistant,
@@ -410,7 +427,6 @@ class ApiSessionRepository implements SessionRepository {
               }
             }
           } else if (streamEventType == 'message_stop') {
-            // Message completed - emit final version
             if (currentMessageId != null && state != null) {
               final blocks = _buildContentBlocks(
                 state.contentBlockTypes,
@@ -420,7 +436,7 @@ class ApiSessionRepository implements SessionRepository {
               );
 
               if (blocks.isNotEmpty) {
-                yield MessageStreamEvent(
+                yield CodexMessageStreamEvent(
                   finalMessage: Message.fromBlocks(
                     id: currentMessageId!,
                     role: MessageRole.assistant,
@@ -434,62 +450,19 @@ class ApiSessionRepository implements SessionRepository {
         } else if (eventType == 'message') {
           final payload = event['payload'];
 
-          // Skip stream_event payloads (already handled above)
           if (payload != null && payload['type'] == 'stream_event') {
             continue;
           }
 
-          if (payload != null && payload['type'] == 'assistant') {
-            // Complete message received - only use if no streaming occurred
-            final messageId = payload['id'] as String?;
-
-            // Skip if we have any messages built via streaming
-            // (AssistantMessage often lacks ID, so we can't match it precisely)
-            if (messageStates.isNotEmpty) {
-              // If any streaming has occurred, ignore non-streaming fallbacks
-              continue;
-            }
-
-            // Fallback for truly non-streaming responses (rare)
-            final messageContent = payload['content'];
-            if (messageContent is List) {
-              final currentBlocks = <ContentBlock>[];
-              for (var blockJson in messageContent) {
-                if (blockJson is Map<String, dynamic>) {
-                  try {
-                    final block = ContentBlock.fromJson(blockJson);
-                    currentBlocks.add(block);
-                  } catch (e) {
-                    // Skip invalid blocks
-                  }
-                }
-              }
-
-              if (currentBlocks.isNotEmpty) {
-                final fallbackId = messageId ?? '${sessionId}_${DateTime.now().millisecondsSinceEpoch}';
-                yield MessageStreamEvent(
-                  finalMessage: Message.fromBlocks(
-                    id: fallbackId,
-                    role: MessageRole.assistant,
-                    blocks: List.from(currentBlocks),
-                  ),
-                );
-              }
-            }
-          } else if (payload != null && payload['type'] == 'result') {
-            // ResultMessage: 提取统计信息
+          if (payload != null && payload['type'] == 'result') {
             final stats = MessageStats.fromResultPayload(payload);
-            // 发送统计信息
-            yield MessageStreamEvent(
-              stats: stats,
-            );
+            yield CodexMessageStreamEvent(stats: stats);
           }
         } else if (eventType == 'done') {
-          // Stream completed - only needed for stats/cleanup
-          yield MessageStreamEvent(isDone: true);
+          yield CodexMessageStreamEvent(isDone: true);
           return;
         } else if (eventType == 'error') {
-          yield MessageStreamEvent(
+          yield CodexMessageStreamEvent(
             error: event['message']?.toString() ?? 'Unknown error',
             isDone: true,
           );
@@ -497,12 +470,9 @@ class ApiSessionRepository implements SessionRepository {
         }
       }
 
-      // Fallback: if stream ends without 'done' event (shouldn't happen normally)
-      yield MessageStreamEvent(isDone: true);
+      yield CodexMessageStreamEvent(isDone: true);
     } catch (e) {
-      // More detailed error logging
-      print('Stream error: $e');
-      yield MessageStreamEvent(
+      yield CodexMessageStreamEvent(
         error: e.toString(),
         isDone: true,
       );
@@ -517,7 +487,6 @@ class ApiSessionRepository implements SessionRepository {
   ) {
     final blocks = <ContentBlock>[];
 
-    // Get all indices and sort them
     final allIndices = <int>{};
     allIndices.addAll(types.keys);
     final sortedIndices = allIndices.toList()..sort();
@@ -534,7 +503,6 @@ class ApiSessionRepository implements SessionRepository {
           ));
         }
       } else if (blockType == 'tool_use' && toolBlocks.containsKey(index)) {
-        // Only include tool_use blocks that have been finalized
         if (finalizedBlocks.contains(index)) {
           final toolBlock = toolBlocks[index]!;
           blocks.add(ContentBlock(
@@ -561,12 +529,6 @@ class ApiSessionRepository implements SessionRepository {
         if (item is Map) {
           if (item['type'] == 'text') {
             buffer.write(item['text']);
-          } else if (item['type'] == 'tool_use') {
-            // Format tool use for display
-            buffer.write('\n[Tool: ${item['name']}]\n');
-          } else if (item['type'] == 'tool_result') {
-            // Format tool result for display
-            buffer.write('\n[Result]\n');
           }
         }
       }
@@ -577,21 +539,113 @@ class ApiSessionRepository implements SessionRepository {
   }
 
   @override
-  Future<ClaudeUserSettings> getUserSettings(String userId) async {
+  Future<CodexUserSettings> getUserSettings(String userId) async {
     try {
       final data = await _apiService.getUserSettings(userId);
-      return ClaudeUserSettings.fromJson({
+      return CodexUserSettings.fromJson({
         'user_id': userId,
         ...data,
       });
     } catch (e) {
       // Return defaults if settings don't exist
-      return ClaudeUserSettings.defaults(userId);
+      return CodexUserSettings.defaults(userId);
     }
   }
 
   @override
-  Future<void> updateUserSettings(String userId, ClaudeUserSettings settings) async {
+  Future<void> updateUserSettings(String userId, CodexUserSettings settings) async {
     await _apiService.updateUserSettings(userId, settings.toJson());
+  }
+
+  @override
+  CodexApiService get apiService => _apiService;
+
+  // 项目管理：从 sessions 按 cwd 分组创建虚拟项目
+  @override
+  Future<List<Project>> getProjects() async {
+    final sessions = await _apiService.getSessions();
+
+    // Group sessions by cwd to create projects
+    final Map<String, List<Map<String, dynamic>>> projectMap = {};
+    for (var session in sessions) {
+      final cwd = session['cwd'] as String;
+      projectMap.putIfAbsent(cwd, () => []).add(session);
+    }
+
+    // Convert to Project list
+    final projects = <Project>[];
+    projectMap.forEach((cwd, sessions) {
+      // Use the directory name as project name
+      final name = cwd.split(RegExp(r'[/\\]')).last;
+
+      // Find the earliest created_at and latest updated_at
+      DateTime? earliest;
+      DateTime? latest;
+
+      for (var session in sessions) {
+        final createdAt = DateTime.parse(session['created_at']);
+        final updatedAt = DateTime.parse(session['updated_at']);
+
+        if (earliest == null || createdAt.isBefore(earliest)) {
+          earliest = createdAt;
+        }
+        if (latest == null || updatedAt.isAfter(latest)) {
+          latest = updatedAt;
+        }
+      }
+
+      projects.add(Project(
+        id: cwd, // Use cwd as unique ID
+        name: name,
+        path: cwd,
+        createdAt: earliest ?? DateTime.now(),
+        lastActiveAt: latest,
+        sessionCount: sessions.length,
+      ));
+    });
+
+    // Sort by lastActiveAt descending
+    projects.sort((a, b) {
+      if (a.lastActiveAt == null && b.lastActiveAt == null) return 0;
+      if (a.lastActiveAt == null) return 1;
+      if (b.lastActiveAt == null) return -1;
+      return b.lastActiveAt!.compareTo(a.lastActiveAt!);
+    });
+
+    return projects;
+  }
+
+  @override
+  Future<Project> getProject(String id) async {
+    final projects = await getProjects();
+    return projects.firstWhere(
+      (p) => p.id == id,
+      orElse: () => throw Exception('Project not found'),
+    );
+  }
+
+  @override
+  Future<List<Session>> getProjectSessions(String projectId) async {
+    final allSessions = await _apiService.getSessions();
+
+    // Filter sessions by cwd (projectId is the cwd)
+    final projectSessions = allSessions
+        .where((s) => s['cwd'] == projectId)
+        .map((s) => Session(
+              id: s['session_id'],
+              projectId: projectId,
+              title: s['title'],
+              name: s['title'], // Use title as name
+              cwd: s['cwd'],
+              createdAt: DateTime.parse(s['created_at']),
+              updatedAt: DateTime.parse(s['updated_at']),
+              messageCount: s['message_count'] ?? 0,
+            ))
+        .toList();
+
+    // Sort by updatedAt descending
+    projectSessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+    return projectSessions;
   }
 }

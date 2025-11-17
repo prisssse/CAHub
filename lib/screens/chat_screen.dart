@@ -1,20 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import '../models/message.dart';
 import '../models/session.dart';
 import '../models/session_settings.dart';
-import '../repositories/session_repository.dart';
+import '../models/codex_user_settings.dart';
 import '../widgets/message_bubble.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/platform_helper.dart';
+import '../repositories/api_codex_repository.dart';
 import 'session_settings_screen.dart';
+import 'codex_session_settings_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final Session session;
-  final SessionRepository repository;
+  final dynamic repository; // Supports both SessionRepository and CodexRepository
   final VoidCallback? onMessageComplete; // 消息完成回调，用于通知标签页
   final ValueNotifier<bool>? hasNewReplyNotifier; // 新回复通知器，用于显示AppBar提示
+  final VoidCallback? onBack; // 返回按钮回调，用于返回项目列表
 
   const ChatScreen({
     super.key,
@@ -22,6 +26,7 @@ class ChatScreen extends StatefulWidget {
     required this.repository,
     this.onMessageComplete,
     this.hasNewReplyNotifier,
+    this.onBack,
   });
 
   @override
@@ -35,6 +40,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   bool _isLoading = false;
   bool _isSending = false;
   late SessionSettings _settings;
+  CodexUserSettings? _codexSettings; // Codex 设置（仅当使用 Codex 时）
   MessageStats? _lastMessageStats; // 最后一条消息的统计信息
   bool _showStats = false; // 是否显示统计信息
   bool _userScrolling = false; // 用户是否正在手动滚动
@@ -58,6 +64,33 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     // 监听用户手动滚动
     _scrollController.addListener(_onScroll);
     _loadMessages();
+    _loadCodexSettingsIfNeeded();
+  }
+
+  Future<void> _loadCodexSettingsIfNeeded() async {
+    if (widget.repository is ApiCodexRepository) {
+      try {
+        final codexRepo = widget.repository as ApiCodexRepository;
+        // 获取当前登录的用户ID
+        final userId = codexRepo.apiService.authService?.username ?? 'default';
+        final settings = await codexRepo.getUserSettings(userId);
+        if (mounted) {
+          setState(() {
+            _codexSettings = settings;
+          });
+        }
+      } catch (e) {
+        print('DEBUG: Failed to load Codex settings: $e');
+        // 如果加载失败，使用默认设置
+        final codexRepo = widget.repository as ApiCodexRepository;
+        final userId = codexRepo.apiService.authService?.username ?? 'default';
+        if (mounted) {
+          setState(() {
+            _codexSettings = CodexUserSettings.defaults(userId);
+          });
+        }
+      }
+    }
   }
 
   void _onScroll() {
@@ -119,13 +152,16 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   Future<void> _loadMessages() async {
     // 如果session id为空，说明是新session，跳过加载消息
     if (widget.session.id.isEmpty) {
+      print('DEBUG ChatScreen: Session ID is empty, skipping message load');
       setState(() => _isLoading = false);
       return;
     }
 
+    print('DEBUG ChatScreen: Loading messages for session ${widget.session.id}');
     setState(() => _isLoading = true);
     try {
       final messages = await widget.repository.getSessionMessages(widget.session.id);
+      print('DEBUG ChatScreen: Loaded ${messages.length} messages');
       setState(() {
         _messages.clear();
         _messages.addAll(messages);
@@ -142,6 +178,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         }
       });
     } catch (e) {
+      print('DEBUG ChatScreen: Error loading messages: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -195,7 +232,16 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           if (mounted) {
             setState(() => _isSending = false);
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('发送失败: ${event.error}')),
+              SnackBar(
+                content: Text('发送失败: ${event.error}'),
+                behavior: SnackBarBehavior.floating,
+                margin: EdgeInsets.only(
+                  top: 16,
+                  left: 16,
+                  right: 16,
+                  bottom: MediaQuery.of(context).size.height - 100,
+                ),
+              ),
             );
           }
           return;
@@ -265,8 +311,6 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           if (mounted) {
             setState(() => _isSending = false);
           }
-          // 通知标签页有新回复（如果当前不在焦点）
-          widget.onMessageComplete?.call();
           return;
         }
       }
@@ -274,30 +318,84 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       if (mounted) {
         setState(() => _isSending = false);
       }
+
+      // 整个消息流结束后才通知标签页有新回复（如果当前不在焦点）
+      widget.onMessageComplete?.call();
     } catch (e) {
       if (mounted) {
         setState(() => _isSending = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('发送失败: $e')),
+          SnackBar(
+            content: Text('发送失败: $e'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
+          ),
         );
       }
     }
   }
 
   void _openSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SessionSettingsScreen(
-          settings: _settings,
-          onSave: (newSettings) {
-            setState(() {
-              _settings = newSettings;
-            });
-          },
+    // 检测是否为 Codex 仓库
+    final isCodex = widget.repository is ApiCodexRepository;
+    print('DEBUG ChatScreen._openSettings: isCodex=$isCodex, repository=${widget.repository.runtimeType}');
+
+    if (isCodex) {
+      // 打开 Codex 设置
+      print('DEBUG ChatScreen._openSettings: Opening Codex settings, _codexSettings=$_codexSettings');
+      if (_codexSettings == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('正在加载 Codex 设置...'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
+          ),
+        );
+        return;
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => CodexSessionSettingsScreen(
+            settings: _codexSettings!,
+            repository: widget.repository as ApiCodexRepository,
+            onSave: (newSettings) {
+              print('DEBUG ChatScreen._openSettings: Codex settings saved: $newSettings');
+              setState(() {
+                _codexSettings = newSettings;
+              });
+            },
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      // 打开 Claude Code 设置
+      print('DEBUG ChatScreen._openSettings: Opening Claude Code settings');
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SessionSettingsScreen(
+            settings: _settings,
+            onSave: (newSettings) {
+              setState(() {
+                _settings = newSettings;
+              });
+            },
+          ),
+        ),
+      );
+    }
   }
 
 
@@ -330,6 +428,13 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     super.build(context); // 必须调用以保持状态
     return Scaffold(
       appBar: AppBar(
+        leading: widget.onBack != null
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: widget.onBack,
+                tooltip: '返回项目列表',
+              )
+            : null,
         title: Row(
           children: [
             Expanded(
@@ -612,7 +717,9 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           ),
           const SizedBox(height: 8),
           Text(
-            '开始与 Claude Code 对话',
+            widget.repository is ApiCodexRepository
+                ? '开始与 Codex 对话'
+                : '开始与 Claude Code 对话',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: appColors.textTertiary,
                 ),
@@ -651,19 +758,33 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(24),
                   ),
-                  child: TextField(
-                    controller: _textController,
-                    decoration: const InputDecoration(
-                      hintText: '输入消息...',
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
+                  child: CallbackShortcuts(
+                    bindings: {
+                      // Enter 键（不带 Shift）发送消息
+                      const SingleActivator(LogicalKeyboardKey.enter): () {
+                        if (!_isSending) {
+                          _handleSubmit(_textController.text);
+                        }
+                      },
+                      // Shift + Enter 键换行（由 TextField 默认处理）
+                    },
+                    child: TextField(
+                      controller: _textController,
+                      decoration: InputDecoration(
+                        hintText: '输入消息...',
+                        hintStyle: TextStyle(
+                          color: Colors.grey.shade400,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                       ),
+                      maxLines: null,
+                      textInputAction: TextInputAction.newline,
+                      enabled: !_isSending,
                     ),
-                    maxLines: null,
-                    textInputAction: TextInputAction.newline,
-                    enabled: !_isSending,
                   ),
                 ),
               ),

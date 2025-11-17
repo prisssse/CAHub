@@ -6,6 +6,8 @@ class ConfigService {
   static const String _fileName = 'app_config.json';
 
   String _apiBaseUrl = 'http://127.0.0.1:8207'; // 默认值
+  String _preferredBackend = 'claude_code'; // 默认使用 Claude Code
+  bool _debugLogEnabled = false; // 默认关闭调试日志
 
   ConfigService._();
 
@@ -38,12 +40,28 @@ class ConfigService {
   }
 
   String get apiBaseUrl => _apiBaseUrl;
+  String get preferredBackend => _preferredBackend;
+  bool get debugLogEnabled => _debugLogEnabled;
 
   Future<void> setApiBaseUrl(String url) async {
     print('DEBUG ConfigService: Setting API URL to: $url');
     _apiBaseUrl = url;
     await _saveConfig();
     print('DEBUG ConfigService: API URL saved, current value: $_apiBaseUrl');
+  }
+
+  Future<void> setPreferredBackend(String backend) async {
+    print('DEBUG ConfigService: Setting preferred backend to: $backend');
+    _preferredBackend = backend;
+    await _saveConfig();
+    print('DEBUG ConfigService: Preferred backend saved, current value: $_preferredBackend');
+  }
+
+  Future<void> setDebugLogEnabled(bool enabled) async {
+    print('DEBUG ConfigService: Setting debug log to: $enabled');
+    _debugLogEnabled = enabled;
+    await _saveConfig();
+    print('DEBUG ConfigService: Debug log saved, current value: $_debugLogEnabled');
   }
 
   // 重新加载配置
@@ -61,15 +79,21 @@ class ConfigService {
         print('DEBUG ConfigService: Loaded config content: $content');
         final json = jsonDecode(content) as Map<String, dynamic>;
         _apiBaseUrl = json['apiBaseUrl'] as String? ?? 'http://127.0.0.1:8207';
+        _preferredBackend = json['preferredBackend'] as String? ?? 'claude_code';
+        _debugLogEnabled = json['debugLogEnabled'] as bool? ?? false;
         print('DEBUG ConfigService: Loaded API URL: $_apiBaseUrl');
+        print('DEBUG ConfigService: Loaded preferred backend: $_preferredBackend');
+        print('DEBUG ConfigService: Loaded debug log enabled: $_debugLogEnabled');
       } else {
         print('DEBUG ConfigService: Config file does not exist at $filePath, using default');
         _apiBaseUrl = 'http://127.0.0.1:8207';
+        _preferredBackend = 'claude_code';
       }
     } catch (e) {
       print('DEBUG ConfigService: Error loading config: $e');
       // 如果加载失败，使用默认值
       _apiBaseUrl = 'http://127.0.0.1:8207';
+      _preferredBackend = 'claude_code';
     }
   }
 
@@ -79,6 +103,8 @@ class ConfigService {
       final file = File(filePath);
       final json = {
         'apiBaseUrl': _apiBaseUrl,
+        'preferredBackend': _preferredBackend,
+        'debugLogEnabled': _debugLogEnabled,
       };
       final jsonString = jsonEncode(json);
       print('DEBUG ConfigService: Saving config: $jsonString to: $filePath');

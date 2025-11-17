@@ -4,10 +4,12 @@ import 'config/app_config.dart';
 import 'screens/tab_manager_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'services/api_service.dart';
+import 'services/codex_api_service.dart';
 import 'services/auth_service.dart';
 import 'services/config_service.dart';
 import 'services/app_settings_service.dart';
 import 'repositories/api_project_repository.dart';
+import 'repositories/api_codex_repository.dart';
 
 void main() {
   runApp(const MyApp());
@@ -45,6 +47,7 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _initializeServices() async {
     try {
+      await _settingsService.initialize(); // 先初始化设置
       _authService = await AuthService.getInstance();
       _configService = await ConfigService.getInstance();
     } catch (e) {
@@ -61,6 +64,7 @@ class _MyAppState extends State<MyApp> {
     final theme = AppTheme.generate(
       isDark: _settingsService.darkModeEnabled,
       fontFamily: _settingsService.fontFamily.fontFamily,
+      fontScale: _settingsService.fontSize.scale,
     );
 
     return MaterialApp(
@@ -83,14 +87,23 @@ class _MyAppState extends State<MyApp> {
     final apiUrl = _configService?.apiBaseUrl ?? AppConfig.apiBaseUrl;
     print('DEBUG: Creating ApiService with URL: $apiUrl');
 
+    // Create Claude Code services
     final apiService = ApiService(
       baseUrl: apiUrl,
       authService: _authService,
     );
-    final repository = ApiProjectRepository(apiService);
+    final claudeRepository = ApiProjectRepository(apiService);
+
+    // Create Codex services
+    final codexApiService = CodexApiService(
+      baseUrl: apiUrl,
+      authService: _authService,
+    );
+    final codexRepository = ApiCodexRepository(codexApiService);
 
     return TabManagerScreen(
-      repository: repository,
+      claudeRepository: claudeRepository,
+      codexRepository: codexRepository,
       onLogout: () {
         setState(() {});
       },

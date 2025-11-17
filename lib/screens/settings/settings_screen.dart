@@ -1,14 +1,23 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/app_settings_service.dart';
 import '../../services/notification_sound_service.dart';
+import '../../models/user_settings.dart';
+import '../../models/codex_user_settings.dart';
+import '../../repositories/project_repository.dart';
+import '../../repositories/codex_repository.dart';
 
 class SettingsScreen extends StatefulWidget {
+  final ProjectRepository claudeRepository;
+  final CodexRepository codexRepository;
   final VoidCallback? onLogout;
 
   const SettingsScreen({
     super.key,
+    required this.claudeRepository,
+    required this.codexRepository,
     this.onLogout,
   });
 
@@ -23,16 +32,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _notifications;
   late double _notificationVolume;
   late FontFamilyOption _fontFamily;
+  late FontSizeOption _fontSize;
   String _apiEndpoint = 'http://192.168.31.99:8207';
+
+  // Claude settings
+  ClaudeUserSettings? _claudeSettings;
+  bool _loadingClaudeSettings = true;
+
+  // Codex settings
+  CodexUserSettings? _codexSettings;
+  bool _loadingCodexSettings = true;
 
   @override
   void initState() {
     super.initState();
-    // 从服务中加载设置
+    // Load interface settings
     _darkMode = _settingsService.darkModeEnabled;
     _notifications = _settingsService.notificationsEnabled;
     _notificationVolume = _settingsService.notificationVolume;
     _fontFamily = _settingsService.fontFamily;
+    _fontSize = _settingsService.fontSize;
+
+    // Load global agent settings
+    _loadGlobalSettings();
+  }
+
+  Future<void> _loadGlobalSettings() async {
+    try {
+      final authService = await AuthService.getInstance();
+      final userId = authService.username ?? 'admin';
+
+      // Load Claude settings
+      setState(() => _loadingClaudeSettings = true);
+      final claudeSettings = await widget.claudeRepository.getUserSettings(userId);
+      setState(() {
+        _claudeSettings = claudeSettings;
+        _loadingClaudeSettings = false;
+      });
+      _settingsService.setClaudeSettings(claudeSettings);
+
+      // Load Codex settings
+      setState(() => _loadingCodexSettings = true);
+      final codexSettings = await widget.codexRepository.getUserSettings(userId);
+      setState(() {
+        _codexSettings = codexSettings;
+        _loadingCodexSettings = false;
+      });
+      _settingsService.setCodexSettings(codexSettings);
+    } catch (e) {
+      setState(() {
+        _loadingClaudeSettings = false;
+        _loadingCodexSettings = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('加载全局设置失败: $e'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -42,7 +108,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final primaryColor = Theme.of(context).colorScheme.primary;
     final errorColor = Theme.of(context).colorScheme.error;
     final dividerColor = Theme.of(context).dividerColor;
-    final cardColor = Theme.of(context).cardColor;
     final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
 
     return Scaffold(
@@ -53,84 +118,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildSectionTitle(context, '外观'),
+          // ========== 界面设置 ==========
+          _buildSectionTitle(context, '界面设置'),
           _buildSettingCard(context,
             child: Column(
               children: [
                 SwitchListTile(
-                  title: Text(
-                    '深色模式',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: textPrimary,
-                    ),
-                  ),
-                  subtitle: Text(
-                    '切换浅色/深色主题',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: appColors.textSecondary,
-                    ),
-                  ),
+                  title: Text('深色模式', style: TextStyle(fontSize: 16, color: textPrimary)),
+                  subtitle: Text('切换浅色/深色主题', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
                   value: _darkMode,
                   onChanged: (value) {
-                    setState(() {
-                      _darkMode = value;
-                    });
+                    setState(() => _darkMode = value);
                     _settingsService.setDarkModeEnabled(value);
                   },
                   activeColor: primaryColor,
                 ),
                 Divider(height: 1, color: dividerColor),
                 ListTile(
-                  title: Text(
-                    '字体',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: textPrimary,
-                    ),
-                  ),
-                  subtitle: Text(
-                    _fontFamily.label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: appColors.textSecondary,
-                      fontFamily: _fontFamily.fontFamily,
-                    ),
-                  ),
-                  trailing: IconButton(
-                    icon: Icon(Icons.arrow_forward_ios, size: 16),
-                    onPressed: () => _showFontPicker(),
-                  ),
+                  title: Text('字体', style: TextStyle(fontSize: 16, color: textPrimary)),
+                  subtitle: Text(_fontFamily.label, style: TextStyle(fontSize: 13, color: appColors.textSecondary, fontFamily: _fontFamily.fontFamily)),
+                  trailing: IconButton(icon: Icon(Icons.arrow_forward_ios, size: 16), onPressed: () => _showFontPicker()),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          _buildSectionTitle(context, '通知'),
-          _buildSettingCard(context,
-            child: Column(
-              children: [
+                Divider(height: 1, color: dividerColor),
+                ListTile(
+                  title: Text('字号', style: TextStyle(fontSize: 16, color: textPrimary)),
+                  subtitle: Text(_fontSize.label, style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                  trailing: IconButton(icon: Icon(Icons.arrow_forward_ios, size: 16), onPressed: () => _showFontSizePicker()),
+                ),
+                Divider(height: 1, color: dividerColor),
                 SwitchListTile(
-                  title: Text(
-                    '启用通知',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: textPrimary,
-                    ),
-                  ),
-                  subtitle: Text(
-                    '后台标签页有新回复时显示通知',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: appColors.textSecondary,
-                    ),
-                  ),
+                  title: Text('启用通知', style: TextStyle(fontSize: 16, color: textPrimary)),
+                  subtitle: Text('后台标签页有新回复时显示通知', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
                   value: _notifications,
                   onChanged: (value) {
-                    setState(() {
-                      _notifications = value;
-                    });
+                    setState(() => _notifications = value);
                     _settingsService.setNotificationsEnabled(value);
                   },
                   activeColor: primaryColor,
@@ -144,15 +165,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         Row(
                           children: [
-                            Expanded(
-                              child: Text(
-                                '通知音量',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: appColors.textSecondary,
-                                ),
-                              ),
-                            ),
+                            Expanded(child: Text('通知音量', style: TextStyle(fontSize: 14, color: appColors.textSecondary))),
                             TextButton.icon(
                               onPressed: () {
                                 _soundService.setVolume(_notificationVolume);
@@ -160,9 +173,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               },
                               icon: Icon(Icons.volume_up, size: 18),
                               label: Text('测试'),
-                              style: TextButton.styleFrom(
-                                foregroundColor: primaryColor,
-                              ),
+                              style: TextButton.styleFrom(foregroundColor: primaryColor),
                             ),
                           ],
                         ),
@@ -178,9 +189,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 label: '${(_notificationVolume * 100).round()}%',
                                 activeColor: primaryColor,
                                 onChanged: (value) {
-                                  setState(() {
-                                    _notificationVolume = value;
-                                  });
+                                  setState(() => _notificationVolume = value);
                                   _settingsService.setNotificationVolume(value);
                                 },
                               ),
@@ -192,134 +201,189 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
+                Divider(height: 1, color: dividerColor),
+                ListTile(
+                  title: Text('API 地址', style: TextStyle(fontSize: 16, color: textPrimary)),
+                  subtitle: Text(_apiEndpoint, style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                  trailing: Icon(Icons.edit, color: primaryColor),
+                  onTap: () => _showApiEndpointDialog(),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
-          _buildSectionTitle(context, 'API 配置'),
-          _buildSettingCard(context,
-            child: ListTile(
-              title: Text(
-                'API 地址',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: textPrimary,
+
+          const SizedBox(height: 32),
+
+          // ========== Claude Code 设置 ==========
+          _buildSectionTitle(context, 'Claude Code 设置'),
+          _loadingClaudeSettings
+              ? _buildLoadingCard(context)
+              : _buildSettingCard(context,
+                  child: Column(
+                    children: [
+                      ListTile(
+                        title: Text('默认权限模式', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text(_getPermissionModeLabel(_claudeSettings?.permissionMode ?? 'default'), style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
+                        onTap: () => _showPermissionModePicker(),
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      ListTile(
+                        title: Text('系统提示', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text(_claudeSettings?.systemPrompt.displayText ?? 'claude_code', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
+                        onTap: () => _showSystemPromptDialog(),
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      ListTile(
+                        title: Text('高级设置', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text(_claudeSettings?.advancedOptions != null && _claudeSettings!.advancedOptions!.isNotEmpty ? '已配置 ${_claudeSettings!.advancedOptions!.length} 个参数' : '未配置', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
+                        onTap: () => _showAdvancedOptionsDialog(),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              subtitle: Text(
-                _apiEndpoint,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: appColors.textSecondary,
+
+          const SizedBox(height: 32),
+
+          // ========== Codex 设置 ==========
+          _buildSectionTitle(context, 'Codex 设置'),
+          _loadingCodexSettings
+              ? _buildLoadingCard(context)
+              : _buildSettingCard(context,
+                  child: Column(
+                    children: [
+                      ListTile(
+                        title: Text('审批策略', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text(_getApprovalPolicyLabel(_codexSettings?.approvalPolicy ?? 'on-request'), style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
+                        onTap: () => _showApprovalPolicyPicker(),
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      ListTile(
+                        title: Text('沙箱模式', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text(_getSandboxModeLabel(_codexSettings?.sandboxMode ?? 'read-only'), style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
+                        onTap: () => _showSandboxModePicker(),
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      ListTile(
+                        title: Text('模型推理强度', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text(_getReasoningEffortLabel(_codexSettings?.modelReasoningEffort ?? 'medium'), style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
+                        onTap: () => _showReasoningEffortPicker(),
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      SwitchListTile(
+                        title: Text('网络访问', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text('允许访问外部网络', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        value: _codexSettings?.networkAccessEnabled ?? false,
+                        onChanged: (value) => _updateCodexSetting('network_access', value),
+                        activeColor: primaryColor,
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      SwitchListTile(
+                        title: Text('网页搜索', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text('启用网页搜索功能', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        value: _codexSettings?.webSearchEnabled ?? false,
+                        onChanged: (value) => _updateCodexSetting('web_search', value),
+                        activeColor: primaryColor,
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      SwitchListTile(
+                        title: Text('跳过 Git 检查', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text('跳过 Git 仓库检查', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        value: _codexSettings?.skipGitRepoCheck ?? false,
+                        onChanged: (value) => _updateCodexSetting('skip_git', value),
+                        activeColor: primaryColor,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              trailing: Icon(
-                Icons.edit,
-                color: primaryColor,
-              ),
-              onTap: () => _showApiEndpointDialog(),
-            ),
-          ),
-          const SizedBox(height: 24),
+
+          const SizedBox(height: 32),
+
+          // ========== 关于 ==========
           _buildSectionTitle(context, '关于'),
           _buildSettingCard(context,
             child: Column(
               children: [
                 ListTile(
-                  title: Text(
-                    '版本',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: textPrimary,
-                    ),
-                  ),
-                  trailing: Text(
-                    '1.0.0',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: appColors.textSecondary,
-                    ),
-                  ),
+                  title: Text('版本', style: TextStyle(fontSize: 16, color: textPrimary)),
+                  trailing: Text('1.0.0', style: TextStyle(fontSize: 14, color: appColors.textSecondary)),
                 ),
-                Divider(
-                  height: 1,
-                  color: dividerColor,
-                ),
+                Divider(height: 1, color: dividerColor),
                 ListTile(
-                  title: Text(
-                    '隐私政策',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: appColors.textSecondary,
-                    ),
-                  ),
-                  subtitle: Text(
-                    '功能开发中...',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: appColors.textTertiary,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                  trailing: Icon(
-                    Icons.arrow_forward_ios,
-                    size: 16,
-                    color: appColors.textTertiary,
-                  ),
-                  onTap: null, // 禁用
+                  title: Text('隐私政策', style: TextStyle(fontSize: 16, color: appColors.textSecondary)),
+                  subtitle: Text('功能开发中...', style: TextStyle(fontSize: 12, color: appColors.textTertiary, fontStyle: FontStyle.italic)),
+                  trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textTertiary),
+                  onTap: null,
                 ),
-                Divider(
-                  height: 1,
-                  color: dividerColor,
-                ),
+                Divider(height: 1, color: dividerColor),
                 ListTile(
-                  title: Text(
-                    '服务条款',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: appColors.textSecondary,
-                    ),
-                  ),
-                  subtitle: Text(
-                    '功能开发中...',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: appColors.textTertiary,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                  trailing: Icon(
-                    Icons.arrow_forward_ios,
-                    size: 16,
-                    color: appColors.textTertiary,
-                  ),
-                  onTap: null, // 禁用
+                  title: Text('服务条款', style: TextStyle(fontSize: 16, color: appColors.textSecondary)),
+                  subtitle: Text('功能开发中...', style: TextStyle(fontSize: 12, color: appColors.textTertiary, fontStyle: FontStyle.italic)),
+                  trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textTertiary),
+                  onTap: null,
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
+
+          const SizedBox(height: 32),
+
+          // ========== 账户 ==========
           _buildSectionTitle(context, '账户'),
           _buildSettingCard(context,
             child: ListTile(
-              leading: Icon(
-                Icons.logout,
-                color: errorColor,
-              ),
-              title: Text(
-                '退出登录',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: errorColor,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+              leading: Icon(Icons.logout, color: errorColor),
+              title: Text('退出登录', style: TextStyle(fontSize: 16, color: errorColor, fontWeight: FontWeight.w500)),
               onTap: () => _handleLogout(),
             ),
           ),
         ],
       ),
     );
+  }
+
+  // Helper: Labels
+  String _getPermissionModeLabel(String mode) {
+    switch (mode) {
+      case 'default': return '默认';
+      case 'plan': return '规划模式';
+      case 'acceptEdits': return '接受编辑';
+      case 'bypassPermissions': return '跳过权限';
+      default: return mode;
+    }
+  }
+
+  String _getApprovalPolicyLabel(String policy) {
+    switch (policy) {
+      case 'never': return '从不';
+      case 'on-request': return '请求时';
+      case 'on-failure': return '失败时';
+      case 'untrusted': return '不信任';
+      default: return policy;
+    }
+  }
+
+  String _getSandboxModeLabel(String mode) {
+    switch (mode) {
+      case 'read-only': return '只读';
+      case 'workspace-write': return '工作区写入';
+      case 'danger-full-access': return '完全访问';
+      default: return mode;
+    }
+  }
+
+  String _getReasoningEffortLabel(String effort) {
+    switch (effort) {
+      case 'low': return '低';
+      case 'medium': return '中';
+      case 'high': return '高';
+      default: return effort;
+    }
   }
 
   Future<void> _handleLogout() async {
@@ -333,28 +397,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         return AlertDialog(
           backgroundColor: cardColor,
-          title: Text(
-            '确认退出',
-            style: TextStyle(color: textPrimary),
-          ),
-          content: Text(
-            '确定要退出登录吗？',
-            style: TextStyle(color: appColors.textSecondary),
-          ),
+          title: Text('确认退出', style: TextStyle(color: textPrimary)),
+          content: Text('确定要退出登录吗？', style: TextStyle(color: appColors.textSecondary)),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(
-                '取消',
-                style: TextStyle(color: appColors.textSecondary),
-              ),
+              child: Text('取消', style: TextStyle(color: appColors.textSecondary)),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: Text(
-                '退出',
-                style: TextStyle(color: errorColor),
-              ),
+              child: Text('退出', style: TextStyle(color: errorColor)),
             ),
           ],
         );
@@ -367,9 +419,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await authService.logout();
 
         if (mounted) {
-          // 关闭设置页面
           Navigator.pop(context);
-          // 调用回调通知父组件
           widget.onLogout?.call();
         }
       } catch (e) {
@@ -379,6 +429,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SnackBar(
               content: Text('退出失败: $e'),
               backgroundColor: errorColor,
+              behavior: SnackBarBehavior.floating,
+              margin: EdgeInsets.only(
+                top: 16,
+                left: 16,
+                right: 16,
+                bottom: MediaQuery.of(context).size.height - 100,
+              ),
             ),
           );
         }
@@ -413,6 +470,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildLoadingCard(BuildContext context) {
+    return Card(
+      color: Theme.of(context).cardColor,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Theme.of(context).dividerColor),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+    );
+  }
+
   void _showApiEndpointDialog() {
     final controller = TextEditingController(text: _apiEndpoint);
     showDialog(
@@ -426,43 +498,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         return AlertDialog(
           backgroundColor: cardColor,
-          title: Text(
-            'API 地址',
-            style: TextStyle(color: textPrimary),
-          ),
+          title: Text('API 地址', style: TextStyle(color: textPrimary)),
           content: TextField(
             controller: controller,
             style: TextStyle(color: textPrimary),
             decoration: InputDecoration(
               hintText: '输入 API 地址',
               hintStyle: TextStyle(color: appColors.textTertiary),
-              enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: dividerColor),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: primaryColor),
-                borderRadius: BorderRadius.circular(8),
-              ),
+              enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: dividerColor), borderRadius: BorderRadius.circular(8)),
+              focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: primaryColor), borderRadius: BorderRadius.circular(8)),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(
-                '取消',
-                style: TextStyle(color: appColors.textSecondary),
-              ),
+              child: Text('取消', style: TextStyle(color: appColors.textSecondary)),
             ),
             TextButton(
               onPressed: () {
                 setState(() => _apiEndpoint = controller.text);
                 Navigator.pop(context);
               },
-              child: Text(
-                '保存',
-                style: TextStyle(color: primaryColor),
-              ),
+              child: Text('保存', style: TextStyle(color: primaryColor)),
             ),
           ],
         );
@@ -481,10 +538,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         return AlertDialog(
           backgroundColor: cardColor,
-          title: Text(
-            '选择字体',
-            style: TextStyle(color: textPrimary),
-          ),
+          title: Text('选择字体', style: TextStyle(color: textPrimary)),
           content: SizedBox(
             width: double.maxFinite,
             child: ListView.builder(
@@ -494,28 +548,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 final option = FontFamilyOption.values[index];
                 final isSelected = _fontFamily == option;
                 return ListTile(
-                  title: Text(
-                    option.label,
-                    style: TextStyle(
-                      color: textPrimary,
-                      fontFamily: option.fontFamily,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                  subtitle: Text(
-                    '这是示例文本 1234',
-                    style: TextStyle(
-                      color: appColors.textSecondary,
-                      fontFamily: option.fontFamily,
-                    ),
-                  ),
-                  trailing: isSelected
-                      ? Icon(Icons.check, color: primaryColor)
-                      : null,
+                  title: Text(option.label, style: TextStyle(color: textPrimary, fontFamily: option.fontFamily, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                  subtitle: Text('这是示例文本 1234', style: TextStyle(color: appColors.textSecondary, fontFamily: option.fontFamily)),
+                  trailing: isSelected ? Icon(Icons.check, color: primaryColor) : null,
                   onTap: () {
-                    setState(() {
-                      _fontFamily = option;
-                    });
+                    setState(() => _fontFamily = option);
                     _settingsService.setFontFamily(option);
                     Navigator.pop(context);
                   },
@@ -526,14 +563,472 @@ class _SettingsScreenState extends State<SettingsScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(
-                '关闭',
-                style: TextStyle(color: appColors.textSecondary),
-              ),
+              child: Text('关闭', style: TextStyle(color: appColors.textSecondary)),
             ),
           ],
         );
       },
     );
+  }
+
+  void _showFontSizePicker() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final appColors = context.appColors;
+        final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+        final primaryColor = Theme.of(context).colorScheme.primary;
+        final cardColor = Theme.of(context).cardColor;
+
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: Text('选择字号', style: TextStyle(color: textPrimary)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: FontSizeOption.values.length,
+              itemBuilder: (context, index) {
+                final option = FontSizeOption.values[index];
+                final isSelected = _fontSize == option;
+                return ListTile(
+                  title: Text(option.label, style: TextStyle(color: textPrimary, fontSize: 16 * option.scale, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                  subtitle: Text('这是示例文本 1234', style: TextStyle(color: appColors.textSecondary, fontSize: 14 * option.scale)),
+                  trailing: isSelected ? Icon(Icons.check, color: primaryColor) : null,
+                  onTap: () {
+                    setState(() => _fontSize = option);
+                    _settingsService.setFontSize(option);
+                    Navigator.pop(context);
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('关闭', style: TextStyle(color: appColors.textSecondary)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showPermissionModePicker() {
+    final modes = ['default', 'plan', 'acceptEdits', 'bypassPermissions'];
+    showDialog(
+      context: context,
+      builder: (context) {
+        final appColors = context.appColors;
+        final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+        final primaryColor = Theme.of(context).colorScheme.primary;
+        final cardColor = Theme.of(context).cardColor;
+
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: Text('选择权限模式', style: TextStyle(color: textPrimary)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: modes.map((mode) {
+              final isSelected = _claudeSettings?.permissionMode == mode;
+              return ListTile(
+                title: Text(_getPermissionModeLabel(mode), style: TextStyle(color: textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                trailing: isSelected ? Icon(Icons.check, color: primaryColor) : null,
+                onTap: () async {
+                  await _updateClaudeSetting('permission_mode', mode);
+                  if (mounted) Navigator.pop(context);
+                },
+              );
+            }).toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('关闭', style: TextStyle(color: appColors.textSecondary)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSystemPromptDialog() {
+    final controller = TextEditingController(
+      text: _claudeSettings?.systemPrompt.type == 'custom' ? _claudeSettings?.systemPrompt.custom : '',
+    );
+    showDialog(
+      context: context,
+      builder: (context) {
+        final appColors = context.appColors;
+        final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+        final primaryColor = Theme.of(context).colorScheme.primary;
+        final dividerColor = Theme.of(context).dividerColor;
+        final cardColor = Theme.of(context).cardColor;
+
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: Text('系统提示', style: TextStyle(color: textPrimary)),
+          content: TextField(
+            controller: controller,
+            style: TextStyle(color: textPrimary),
+            maxLines: 5,
+            decoration: InputDecoration(
+              hintText: '输入自定义系统提示（留空使用默认）',
+              hintStyle: TextStyle(color: appColors.textTertiary),
+              enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: dividerColor), borderRadius: BorderRadius.circular(8)),
+              focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: primaryColor), borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('取消', style: TextStyle(color: appColors.textSecondary)),
+            ),
+            TextButton(
+              onPressed: () async {
+                final text = controller.text.trim();
+                final prompt = text.isEmpty ? SystemPrompt.preset('claude_code') : SystemPrompt.custom(text);
+                await _updateClaudeSetting('system_prompt', prompt);
+                if (mounted) Navigator.pop(context);
+              },
+              child: Text('保存', style: TextStyle(color: primaryColor)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showApprovalPolicyPicker() {
+    final policies = ['never', 'on-request', 'on-failure', 'untrusted'];
+    showDialog(
+      context: context,
+      builder: (context) {
+        final appColors = context.appColors;
+        final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+        final primaryColor = Theme.of(context).colorScheme.primary;
+        final cardColor = Theme.of(context).cardColor;
+
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: Text('选择审批策略', style: TextStyle(color: textPrimary)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: policies.map((policy) {
+              final isSelected = _codexSettings?.approvalPolicy == policy;
+              return ListTile(
+                title: Text(_getApprovalPolicyLabel(policy), style: TextStyle(color: textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                trailing: isSelected ? Icon(Icons.check, color: primaryColor) : null,
+                onTap: () async {
+                  await _updateCodexSetting('approval_policy', policy);
+                  if (mounted) Navigator.pop(context);
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSandboxModePicker() {
+    final modes = ['read-only', 'workspace-write', 'danger-full-access'];
+    showDialog(
+      context: context,
+      builder: (context) {
+        final appColors = context.appColors;
+        final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+        final primaryColor = Theme.of(context).colorScheme.primary;
+        final cardColor = Theme.of(context).cardColor;
+
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: Text('选择沙箱模式', style: TextStyle(color: textPrimary)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: modes.map((mode) {
+              final isSelected = _codexSettings?.sandboxMode == mode;
+              return ListTile(
+                title: Text(_getSandboxModeLabel(mode), style: TextStyle(color: textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                trailing: isSelected ? Icon(Icons.check, color: primaryColor) : null,
+                onTap: () async {
+                  await _updateCodexSetting('sandbox_mode', mode);
+                  if (mounted) Navigator.pop(context);
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showReasoningEffortPicker() {
+    final efforts = ['low', 'medium', 'high'];
+    showDialog(
+      context: context,
+      builder: (context) {
+        final appColors = context.appColors;
+        final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+        final primaryColor = Theme.of(context).colorScheme.primary;
+        final cardColor = Theme.of(context).cardColor;
+
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: Text('选择推理强度', style: TextStyle(color: textPrimary)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: efforts.map((effort) {
+              final isSelected = _codexSettings?.modelReasoningEffort == effort;
+              return ListTile(
+                title: Text(_getReasoningEffortLabel(effort), style: TextStyle(color: textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                trailing: isSelected ? Icon(Icons.check, color: primaryColor) : null,
+                onTap: () async {
+                  await _updateCodexSetting('reasoning_effort', effort);
+                  if (mounted) Navigator.pop(context);
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showAdvancedOptionsDialog() {
+    final appColors = context.appColors;
+    final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final dividerColor = Theme.of(context).dividerColor;
+    final cardColor = Theme.of(context).cardColor;
+
+    // 将现有的高级选项转换为格式化的JSON字符串
+    String initialJson = '';
+    if (_claudeSettings?.advancedOptions != null && _claudeSettings!.advancedOptions!.isNotEmpty) {
+      try {
+        initialJson = const JsonEncoder.withIndent('  ').convert(_claudeSettings!.advancedOptions);
+      } catch (e) {
+        initialJson = '{}';
+      }
+    } else {
+      initialJson = '{\n  \n}';
+    }
+
+    final controller = TextEditingController(text: initialJson);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: Text('高级设置', style: TextStyle(color: textPrimary, fontSize: 18)),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '可配置参数（JSON格式）：',
+                  style: TextStyle(color: appColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: appColors.codeBackground,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: dividerColor),
+                  ),
+                  child: Text(
+                    'additional_directories, agents, allowed_tools,\ncontinue, disallowed_tools, env, executable,\nexecutable_args, extra_args, fallback_model,\nfork_session, include_partial_messages,\nmax_thinking_tokens, max_turns, max_budget_usd,\nmcp_servers, model, path_to_claude_code_executable,\nallow_dangerously_skip_permissions,\npermission_prompt_tool_name, plugins,\nresume_session_at, setting_sources,\nstrict_mcp_config',
+                    style: TextStyle(
+                      color: appColors.textSecondary,
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  style: TextStyle(color: textPrimary, fontFamily: 'monospace', fontSize: 13),
+                  maxLines: 15,
+                  decoration: InputDecoration(
+                    hintText: '{\n  "max_turns": 100,\n  "model": "claude-sonnet-4"\n}',
+                    hintStyle: TextStyle(color: appColors.textTertiary, fontFamily: 'monospace', fontSize: 12),
+                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: dividerColor), borderRadius: BorderRadius.circular(8)),
+                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: primaryColor), borderRadius: BorderRadius.circular(8)),
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('取消', style: TextStyle(color: appColors.textSecondary)),
+            ),
+            TextButton(
+              onPressed: () async {
+                try {
+                  final jsonText = controller.text.trim();
+                  Map<String, dynamic>? options;
+
+                  if (jsonText.isEmpty || jsonText == '{}' || jsonText == '{\n  \n}') {
+                    options = null;
+                  } else {
+                    options = jsonDecode(jsonText) as Map<String, dynamic>;
+                  }
+
+                  await _updateClaudeSetting('advanced_options', options);
+                  if (mounted) Navigator.pop(context);
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('JSON 格式错误: $e'),
+                        backgroundColor: Theme.of(context).colorScheme.error,
+                        behavior: SnackBarBehavior.floating,
+                        margin: EdgeInsets.only(
+                          top: 16,
+                          left: 16,
+                          right: 16,
+                          bottom: MediaQuery.of(context).size.height - 100,
+                        ),
+                      ),
+                    );
+                  }
+                }
+              },
+              child: Text('保存', style: TextStyle(color: primaryColor)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _updateClaudeSetting(String key, dynamic value) async {
+    if (_claudeSettings == null) return;
+
+    try {
+      ClaudeUserSettings updated;
+      if (key == 'permission_mode') {
+        updated = _claudeSettings!.copyWith(permissionMode: value as String);
+      } else if (key == 'system_prompt') {
+        updated = _claudeSettings!.copyWith(systemPrompt: value as SystemPrompt);
+      } else if (key == 'advanced_options') {
+        updated = _claudeSettings!.copyWith(advancedOptions: value as Map<String, dynamic>?);
+      } else {
+        return;
+      }
+
+      final authService = await AuthService.getInstance();
+      final userId = authService.username ?? 'admin';
+
+      await widget.claudeRepository.updateUserSettings(userId, updated);
+      setState(() => _claudeSettings = updated);
+      _settingsService.setClaudeSettings(updated);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Claude 设置已保存'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存失败: $e'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _updateCodexSetting(String key, dynamic value) async {
+    if (_codexSettings == null) return;
+
+    try {
+      CodexUserSettings updated;
+      switch (key) {
+        case 'approval_policy':
+          updated = _codexSettings!.copyWith(approvalPolicy: value as String);
+          break;
+        case 'sandbox_mode':
+          updated = _codexSettings!.copyWith(sandboxMode: value as String);
+          break;
+        case 'reasoning_effort':
+          updated = _codexSettings!.copyWith(modelReasoningEffort: value as String);
+          break;
+        case 'network_access':
+          updated = _codexSettings!.copyWith(networkAccessEnabled: value as bool);
+          break;
+        case 'web_search':
+          updated = _codexSettings!.copyWith(webSearchEnabled: value as bool);
+          break;
+        case 'skip_git':
+          updated = _codexSettings!.copyWith(skipGitRepoCheck: value as bool);
+          break;
+        default:
+          return;
+      }
+
+      final authService = await AuthService.getInstance();
+      final userId = authService.username ?? 'admin';
+
+      await widget.codexRepository.updateUserSettings(userId, updated);
+      setState(() => _codexSettings = updated);
+      _settingsService.setCodexSettings(updated);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Codex 设置已保存'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存失败: $e'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
+          ),
+        );
+      }
+    }
   }
 }

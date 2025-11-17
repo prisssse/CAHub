@@ -1,6 +1,7 @@
 import '../models/session.dart';
 import '../models/message.dart';
 import '../models/session_settings.dart';
+import '../models/user_settings.dart';
 import 'session_repository.dart';
 
 class MockSessionRepository implements SessionRepository {
@@ -64,5 +65,15 @@ class MockSessionRepository implements SessionRepository {
       finalMessage: response,
       isDone: true,
     );
+  }
+
+  @override
+  Future<ClaudeUserSettings> getUserSettings(String userId) async {
+    return ClaudeUserSettings.defaults(userId);
+  }
+
+  @override
+  Future<void> updateUserSettings(String userId, ClaudeUserSettings settings) async {
+    // Mock implementation - do nothing
   }
 }

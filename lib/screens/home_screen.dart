@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import '../repositories/project_repository.dart';
+import '../repositories/codex_repository.dart';
+import '../services/app_settings_service.dart';
+import '../services/config_service.dart';
 import 'projects/project_list_screen.dart';
 import 'recent_sessions_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  final ProjectRepository repository;
+  final ProjectRepository claudeRepository;
+  final CodexRepository codexRepository;
   final Function({
     required String sessionId,
     required String sessionName,
@@ -16,13 +20,16 @@ class HomeScreen extends StatefulWidget {
     required Widget content,
   })? onNavigate;
   final VoidCallback? onLogout;
+  final AgentMode? initialMode; // 标签页创建时的后端模式，用于锁定
 
   const HomeScreen({
     super.key,
-    required this.repository,
+    required this.claudeRepository,
+    required this.codexRepository,
     this.onOpenChat,
     this.onNavigate,
     this.onLogout,
+    this.initialMode, // 可选参数
   });
 
   @override
@@ -39,13 +46,15 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _screens = [
       ProjectListScreen(
-        repository: widget.repository,
+        claudeRepository: widget.claudeRepository,
+        codexRepository: widget.codexRepository,
         onOpenChat: widget.onOpenChat,
         onNavigate: widget.onNavigate,
         onLogout: widget.onLogout,
+        initialMode: widget.initialMode, // 传递初始模式，锁定标签页的后端选择
       ),
       RecentSessionsScreen(
-        repository: widget.repository,
+        repository: widget.claudeRepository,  // Use Claude by default for recent sessions
         onOpenChat: widget.onOpenChat,
       ),
     ];
