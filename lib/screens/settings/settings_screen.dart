@@ -36,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late FontFamilyOption _fontFamily;
   late FontSizeOption _fontSize;
   late bool _hideToolCalls;
+  late bool _includeProjectSettings; // 是否包含项目设置
   String _apiEndpoint = 'http://192.168.31.99:8207';
 
   // Claude settings
@@ -56,6 +57,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _fontFamily = _settingsService.fontFamily;
     _fontSize = _settingsService.fontSize;
     _hideToolCalls = _settingsService.hideToolCalls;
+
+    // 初始化项目设置开关
+    List<String> currentSources = _settingsService.defaultSessionSettings?.settingSources ?? ['user'];
+    _includeProjectSettings = currentSources.contains('project');
 
     // Load global agent settings
     _loadGlobalSettings();
@@ -246,11 +251,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onTap: () => _showAdvancedOptionsDialog(),
                       ),
                       Divider(height: 1, color: dividerColor),
-                      ListTile(
-                        title: Text('默认项目设置', style: TextStyle(fontSize: 16, color: textPrimary)),
-                        subtitle: Text(_settingsService.defaultSessionSettings != null ? '已配置' : '未配置', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
-                        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
-                        onTap: () => _showDefaultProjectSettingsDialog(),
+                      SwitchListTile(
+                        title: Text('包含项目配置', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text('新会话将读取项目目录中的 .claude/config 配置', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        value: _includeProjectSettings,
+                        onChanged: (value) {
+                          setState(() => _includeProjectSettings = value);
+                          // 保存设置
+                          final newSources = value ? ['user', 'project'] : ['user'];
+                          final newSettings = SessionSettings(
+                            sessionId: 'default',
+                            cwd: '',
+                            settingSources: newSources,
+                          );
+                          _settingsService.setDefaultSessionSettings(newSettings);
+                        },
+                        activeColor: primaryColor,
                       ),
                       Divider(height: 1, color: dividerColor),
                       SwitchListTile(
@@ -1054,25 +1070,4 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showDefaultProjectSettingsDialog() {
-    // 获取或创建默认设置
-    SessionSettings currentSettings = _settingsService.defaultSessionSettings ??
-        SessionSettings(
-          sessionId: 'default',
-          cwd: '',
-        );
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SessionSettingsScreen(
-          settings: currentSettings,
-          onSave: (newSettings) {
-            _settingsService.setDefaultSessionSettings(newSettings);
-            setState(() {}); // 刷新界面显示状态
-          },
-        ),
-      ),
-    );
-  }
 }

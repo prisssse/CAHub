@@ -97,6 +97,7 @@ class _TabManagerScreenState extends State<TabManagerScreen>
         onOpenChat: _openChatInCurrentTab,
         onNavigate: _replaceCurrentTab,
         onLogout: widget.onLogout,
+        onGoBack: _goBackInCurrentTab, // 传递返回回调
         initialMode: initialMode, // 传入初始模式，锁定标签页的后端选择
       ),
     );
@@ -113,16 +114,38 @@ class _TabManagerScreenState extends State<TabManagerScreen>
     required String title,
     required Widget content,
   }) {
+    final currentTab = _tabs[_currentIndex];
+
     final newTab = TabInfo(
       id: id,
       type: TabType.home, // 保持为 home 类型，因为不是聊天
       title: title,
       content: content,
+      previousContent: currentTab.content, // 保存当前内容，用于返回
+      previousTitle: currentTab.title, // 保存当前标题
     );
 
     setState(() {
       _tabs[_currentIndex] = newTab;
     });
+  }
+
+  void _goBackInCurrentTab() {
+    final currentTab = _tabs[_currentIndex];
+
+    // 如果有之前的内容，恢复到之前的内容
+    if (currentTab.previousContent != null) {
+      final restoredTab = TabInfo(
+        id: 'home_${DateTime.now().millisecondsSinceEpoch}',
+        type: TabType.home,
+        title: currentTab.previousTitle ?? '主页',
+        content: currentTab.previousContent!,
+      );
+
+      setState(() {
+        _tabs[_currentIndex] = restoredTab;
+      });
+    }
   }
 
   void _openChatInCurrentTab({
@@ -217,6 +240,7 @@ class _TabManagerScreenState extends State<TabManagerScreen>
         onOpenChat: _openChatInCurrentTab,
         onNavigate: _replaceCurrentTab,
         onLogout: widget.onLogout,
+        onGoBack: _goBackInCurrentTab, // 传递返回回调
         initialMode: initialMode,
       ),
     );

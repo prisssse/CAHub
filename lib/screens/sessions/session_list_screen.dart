@@ -24,6 +24,7 @@ class SessionListScreen extends StatefulWidget {
     required String title,
     required Widget content,
   })? onNavigate;
+  final VoidCallback? onBack; // 返回回调
 
   const SessionListScreen({
     super.key,
@@ -33,6 +34,7 @@ class SessionListScreen extends StatefulWidget {
     this.onSessionSelected,
     this.onOpenChat,
     this.onNavigate,
+    this.onBack,
   });
 
   @override
@@ -130,6 +132,18 @@ class _SessionListScreenState extends State<SessionListScreen> {
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            // 如果有 onBack 回调，使用回调（标签页模式）
+            if (widget.onBack != null) {
+              widget.onBack!();
+            } else {
+              // 否则使用 Navigator.pop（导航模式）
+              Navigator.of(context).pop();
+            }
+          },
+        ),
         title: Text(widget.project?.name ?? '会话'),
       ),
       floatingActionButton: widget.isSelectMode

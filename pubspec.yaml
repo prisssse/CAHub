@@ -43,6 +43,9 @@ dependencies:
 
   # Audio player for notification sounds
   audioplayers: ^6.4.0
+  
+  # Window manager for custom title bar
+  window_manager: ^0.4.2
 
 dev_dependencies:
   flutter_test:

@@ -9,6 +9,7 @@ import '../../repositories/api_codex_repository.dart';
 import '../sessions/session_list_screen.dart';
 import '../settings/settings_screen.dart';
 import '../chat_screen.dart';
+import '../home_screen.dart';
 import '../../services/api_service.dart';
 import '../../services/app_settings_service.dart';
 import '../../services/config_service.dart';
@@ -27,7 +28,10 @@ class ProjectListScreen extends StatefulWidget {
     required Widget content,
   })? onNavigate;
   final VoidCallback? onLogout;
+  final VoidCallback? onGoBack; // 返回回调
   final AgentMode? initialMode; // 初始后端模式，用于锁定标签页的后端选择
+  final AgentMode? sharedMode; // 共享的模式状态
+  final Function(AgentMode)? onModeChanged; // 模式切换回调
 
   const ProjectListScreen({
     super.key,
@@ -36,7 +40,10 @@ class ProjectListScreen extends StatefulWidget {
     this.onOpenChat,
     this.onNavigate,
     this.onLogout,
-    this.initialMode, // 可选参数
+    this.onGoBack,
+    this.initialMode,
+    this.sharedMode,
+    this.onModeChanged,
   });
 
   @override
@@ -46,22 +53,35 @@ class ProjectListScreen extends StatefulWidget {
 class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKeepAliveClientMixin {
   List<Project> _projects = [];
   bool _isLoading = false;
-  AgentMode _currentMode = AgentMode.claudeCode; // 当前选择的模式
   DateTime? _lastRefreshTime; // 上次刷新时间
   static const Duration _autoRefreshInterval = Duration(minutes: 1); // 自动刷新间隔
 
   @override
   bool get wantKeepAlive => true; // 保持状态
 
+  // 获取当前模式（优先使用共享模式）
+  AgentMode get _currentMode => widget.sharedMode ?? AgentMode.claudeCode;
+
   @override
   void initState() {
     super.initState();
-    _loadPreferredBackend();
+    // 如果没有共享模式，则加载偏好设置
+    if (widget.sharedMode == null) {
+      _loadPreferredBackend();
+    } else {
+      _loadProjects();
+    }
   }
 
   @override
   void didUpdateWidget(ProjectListScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    // 如果共享模式变化，重新加载项目
+    if (oldWidget.sharedMode != widget.sharedMode && widget.sharedMode != null) {
+      _loadProjects();
+    }
+
     _checkAndAutoRefresh();
   }
 
@@ -80,29 +100,10 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
     }
   }
 
-  // 从ConfigService加载用户上次选择的后端，或使用提供的初始模式
+  // 从ConfigService加载用户上次选择的后端（仅在没有共享模式时使用）
   Future<void> _loadPreferredBackend() async {
-    // 如果提供了 initialMode，优先使用它（用于锁定标签页的后端选择）
-    if (widget.initialMode != null) {
-      setState(() {
-        _currentMode = widget.initialMode!;
-      });
-      _loadProjects();
-      return;
-    }
-
-    // 否则从 ConfigService 读取（用于新建标签页）
-    final configService = await ConfigService.getInstance();
-    final preferredBackend = configService.preferredBackend;
-
-    setState(() {
-      if (preferredBackend == 'codex') {
-        _currentMode = AgentMode.codex;
-      } else {
-        _currentMode = AgentMode.claudeCode;
-      }
-    });
-
+    // 这个方法只在没有共享模式管理时调用
+    // 直接加载项目即可，因为 _currentMode getter 会处理默认值
     _loadProjects();
   }
 
@@ -126,14 +127,18 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
   // 切换模式
   Future<void> _switchMode(AgentMode mode) async {
     if (_currentMode != mode) {
-      setState(() => _currentMode = mode);
+      // 通知父组件模式变化
+      widget.onModeChanged?.call(mode);
 
       // 保存到ConfigService
       final configService = await ConfigService.getInstance();
       final backendString = mode == AgentMode.codex ? 'codex' : 'claude_code';
       await configService.setPreferredBackend(backendString);
 
-      _loadProjects();
+      // 如果没有共享模式管理，本地刷新
+      if (widget.sharedMode == null) {
+        _loadProjects();
+      }
     }
   }
 
@@ -531,6 +536,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
                 repository: repository,
                 onOpenChat: widget.onOpenChat,
                 onNavigate: widget.onNavigate,
+                onBack: widget.onGoBack, // 使用传递下来的 onGoBack 回调
               ),
             );
           } else {
