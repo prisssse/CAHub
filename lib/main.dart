@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'core/theme/app_theme.dart';
@@ -14,8 +16,12 @@ import 'repositories/api_codex_repository.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 初始化 window_manager
-  await windowManager.ensureInitialized();
+
+  // 只在桌面平台初始化 window_manager
+  if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+    await windowManager.ensureInitialized();
+  }
+
   runApp(const MyApp());
 }
 
@@ -51,16 +57,19 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _updateWindowTitleBarColor() async {
-    final isDark = _settingsService.darkModeEnabled;
-    final backgroundColor = isDark ? const Color(0xFF121212) : const Color(0xFFFFFBF5);
+    // 只在桌面平台设置窗口标题栏
+    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      final isDark = _settingsService.darkModeEnabled;
+      final backgroundColor = isDark ? const Color(0xFF121212) : const Color(0xFFFFFBF5);
 
-    await windowManager.setTitleBarStyle(
-      TitleBarStyle.normal,
-      windowButtonVisibility: true,
-    );
+      await windowManager.setTitleBarStyle(
+        TitleBarStyle.normal,
+        windowButtonVisibility: true,
+      );
 
-    // 设置标题栏背景色
-    await windowManager.setBackgroundColor(backgroundColor);
+      // 设置标题栏背景色
+      await windowManager.setBackgroundColor(backgroundColor);
+    }
   }
 
   Future<void> _initializeServices() async {
