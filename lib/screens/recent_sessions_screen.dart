@@ -24,14 +24,40 @@ class RecentSessionsScreen extends StatefulWidget {
   State<RecentSessionsScreen> createState() => _RecentSessionsScreenState();
 }
 
-class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
+class _RecentSessionsScreenState extends State<RecentSessionsScreen> with AutomaticKeepAliveClientMixin {
   List<Session> _recentSessions = [];
   bool _isLoading = false;
+  DateTime? _lastRefreshTime; // 上次刷新时间
+  static const Duration _autoRefreshInterval = Duration(minutes: 1); // 自动刷新间隔
+
+  @override
+  bool get wantKeepAlive => true; // 保持状态
 
   @override
   void initState() {
     super.initState();
     _loadRecentSessions();
+  }
+
+  @override
+  void didUpdateWidget(RecentSessionsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _checkAndAutoRefresh();
+  }
+
+  // 检查并自动刷新
+  void _checkAndAutoRefresh() {
+    if (_lastRefreshTime == null) {
+      return; // 首次加载，不需要自动刷新
+    }
+
+    final now = DateTime.now();
+    final timeSinceLastRefresh = now.difference(_lastRefreshTime!);
+
+    if (timeSinceLastRefresh >= _autoRefreshInterval) {
+      print('DEBUG: Auto-refreshing recent sessions (last refresh: ${timeSinceLastRefresh.inSeconds}s ago)');
+      _loadRecentSessions();
+    }
   }
 
   Future<void> _loadRecentSessions() async {
@@ -53,6 +79,7 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
       setState(() {
         _recentSessions = allSessions;
         _isLoading = false;
+        _lastRefreshTime = DateTime.now(); // 记录刷新时间
       });
     } catch (e) {
       setState(() => _isLoading = false);
@@ -89,6 +116,8 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // 必须调用以支持 AutomaticKeepAliveClientMixin
+
     final appColors = context.appColors;
     final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
     final primaryColor = Theme.of(context).colorScheme.primary;

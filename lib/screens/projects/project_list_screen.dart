@@ -43,15 +43,41 @@ class ProjectListScreen extends StatefulWidget {
   State<ProjectListScreen> createState() => _ProjectListScreenState();
 }
 
-class _ProjectListScreenState extends State<ProjectListScreen> {
+class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKeepAliveClientMixin {
   List<Project> _projects = [];
   bool _isLoading = false;
   AgentMode _currentMode = AgentMode.claudeCode; // 当前选择的模式
+  DateTime? _lastRefreshTime; // 上次刷新时间
+  static const Duration _autoRefreshInterval = Duration(minutes: 1); // 自动刷新间隔
+
+  @override
+  bool get wantKeepAlive => true; // 保持状态
 
   @override
   void initState() {
     super.initState();
     _loadPreferredBackend();
+  }
+
+  @override
+  void didUpdateWidget(ProjectListScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _checkAndAutoRefresh();
+  }
+
+  // 检查并自动刷新
+  void _checkAndAutoRefresh() {
+    if (_lastRefreshTime == null) {
+      return; // 首次加载，不需要自动刷新
+    }
+
+    final now = DateTime.now();
+    final timeSinceLastRefresh = now.difference(_lastRefreshTime!);
+
+    if (timeSinceLastRefresh >= _autoRefreshInterval) {
+      print('DEBUG: Auto-refreshing projects (last refresh: ${timeSinceLastRefresh.inSeconds}s ago)');
+      _loadProjects();
+    }
   }
 
   // 从ConfigService加载用户上次选择的后端，或使用提供的初始模式
@@ -90,6 +116,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
       setState(() {
         _projects = projects;
         _isLoading = false;
+        _lastRefreshTime = DateTime.now(); // 记录刷新时间
       });
     } catch (e) {
       setState(() => _isLoading = false);
@@ -390,6 +417,8 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // 必须调用以支持 AutomaticKeepAliveClientMixin
+
     final appColors = context.appColors;
     final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
     final primaryColor = Theme.of(context).colorScheme.primary;

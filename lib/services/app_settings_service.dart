@@ -263,6 +263,7 @@ class AppSettingsService {
       systemPromptPreset: _defaultSessionSettings!.systemPromptPreset,
       systemPromptMode: _defaultSessionSettings!.systemPromptMode,
       settingSources: _defaultSessionSettings!.settingSources,
+      hideToolCalls: _defaultSessionSettings!.hideToolCalls,
     );
   }
 

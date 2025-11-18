@@ -41,7 +41,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   final ScrollController _scrollController = ScrollController();
   bool _isLoading = false;
   bool _isSending = false;
-  late SessionSettings _settings;
+  SessionSettings? _settings;
   CodexUserSettings? _codexSettings; // Codex 设置（仅当使用 Codex 时）
   MessageStats? _lastMessageStats; // 最后一条消息的统计信息
   bool _showStats = false; // 是否显示统计信息
@@ -268,7 +268,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         sessionId: sessionIdToUse,
         content: text,
         cwd: _currentSession.cwd, // 传递工作目录
-        settings: _settings,
+        settings: _settings, // Claude Code 设置
+        codexSettings: _codexSettings, // Codex 设置
       )) {
         // 捕获新创建的session ID
         if (event.sessionId != null && event.sessionId!.isNotEmpty) {
@@ -451,11 +452,22 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     } else {
       // 打开 Claude Code 设置
       print('DEBUG ChatScreen._openSettings: Opening Claude Code settings');
+
+      // 确保 _settings 已初始化
+      if (_settings == null) {
+        print('ERROR: _settings is null when trying to open settings screen');
+        // 创建默认设置
+        _settings = SessionSettings(
+          sessionId: widget.session.id,
+          cwd: widget.session.cwd,
+        );
+      }
+
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => SessionSettingsScreen(
-            settings: _settings,
+            settings: _settings!,
             onSave: (newSettings) async {
               // 保存到本地持久化存储
               await settingsService.saveClaudeSessionSettings(
