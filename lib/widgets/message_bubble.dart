@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/message.dart';
 import '../core/theme/app_theme.dart';
-import '../core/utils/platform_helper.dart';
 
-class MessageBubble extends StatelessWidget {
+class MessageBubble extends StatefulWidget {
   final Message message;
   final bool hideToolCalls;
 
@@ -16,9 +16,18 @@ class MessageBubble extends StatelessWidget {
   });
 
   @override
+  State<MessageBubble> createState() => _MessageBubbleState();
+}
+
+class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true; // 保持widget状态，避免重建
+
+  @override
   Widget build(BuildContext context) {
-    final isUser = message.role == MessageRole.user;
-    final isSystem = message.role == MessageRole.system;
+    super.build(context); // 必须调用以支持 AutomaticKeepAliveClientMixin
+    final isUser = widget.message.role == MessageRole.user;
+    final isSystem = widget.message.role == MessageRole.system;
     final appColors = context.appColors;
 
     if (isSystem) {
@@ -31,7 +40,7 @@ class MessageBubble extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
           child: Text(
-            message.content,
+            widget.message.content,
             style: TextStyle(
               color: appColors.textSecondary,
               fontSize: 12,
@@ -42,8 +51,8 @@ class MessageBubble extends StatelessWidget {
     }
 
     // 如果启用了隐藏工具调用，检查消息是否只包含工具调用内容
-    if (hideToolCalls) {
-      final hasNonToolContent = message.contentBlocks.any((block) =>
+    if (widget.hideToolCalls) {
+      final hasNonToolContent = widget.message.contentBlocks.any((block) =>
         block.type != ContentBlockType.toolUse &&
         block.type != ContentBlockType.toolResult
       );
@@ -76,14 +85,34 @@ class MessageBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ...message.contentBlocks.map((block) => _buildContentBlock(context, block)),
+            ...widget.message.contentBlocks.map((block) => _buildContentBlock(context, block)),
             const SizedBox(height: 4),
-            Text(
-              _formatTime(message.timestamp),
-              style: TextStyle(
-                color: appColors.textTertiary,
-                fontSize: 10,
-              ),
+            // 时间和复制按钮放在同一行
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _formatTime(widget.message.timestamp),
+                  style: TextStyle(
+                    color: appColors.textTertiary,
+                    fontSize: 10,
+                  ),
+                ),
+                // 复制按钮（仅assistant消息）
+                if (!isUser)
+                  InkWell(
+                    onTap: () => _copyMessageContent(context),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.copy,
+                        size: 14,
+                        color: appColors.textTertiary,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ],
         ),
@@ -101,7 +130,7 @@ class MessageBubble extends StatelessWidget {
 
       case ContentBlockType.toolUse:
         // 如果设置了隐藏工具调用，返回空 widget
-        if (hideToolCalls) return const SizedBox.shrink();
+        if (widget.hideToolCalls) return const SizedBox.shrink();
         return _buildToolUseBlock(
           context,
           name: block.name ?? 'unknown',
@@ -110,7 +139,7 @@ class MessageBubble extends StatelessWidget {
 
       case ContentBlockType.toolResult:
         // 如果设置了隐藏工具调用，返回空 widget
-        if (hideToolCalls) return const SizedBox.shrink();
+        if (widget.hideToolCalls) return const SizedBox.shrink();
         return _buildToolResultBlock(
           context,
           content: block.content,
@@ -128,35 +157,349 @@ class MessageBubble extends StatelessWidget {
     final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
     final appColors = context.appColors;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: MarkdownBody(
-        data: text,
-        // 必须设为 false，让外层的 SelectionArea 统一管理选择
-        // 如果设为 true，会创建独立的选择区域，导致无法跨行/跨消息选择
-        selectable: false,
-        styleSheet: MarkdownStyleSheet(
-          p: TextStyle(
-            color: textPrimary,
-            fontSize: 15,
-            height: 1.5,
-          ),
-          code: TextStyle(
-            backgroundColor: appColors.codeBackground,
-            color: textPrimary,
-            fontSize: 14,
-          ),
-          codeblockDecoration: BoxDecoration(
-            color: appColors.codeBackground,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          blockquote: TextStyle(
-            color: appColors.textSecondary,
-            fontStyle: FontStyle.italic,
+    // 检查是否包含代码块
+    final codeBlockPattern = RegExp(r'```(\w*)[\r\n]+([\s\S]*?)[\r\n]+```');
+    final matches = codeBlockPattern.allMatches(text).toList();
+
+    // 如果没有代码块，直接使用markdown渲染
+    if (matches.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: MarkdownBody(
+          data: text,
+          selectable: false,
+          styleSheet: MarkdownStyleSheet(
+            p: TextStyle(
+              color: textPrimary,
+              fontSize: 15,
+              height: 1.5,
+            ),
+            code: TextStyle(
+              backgroundColor: appColors.toolBackground.withOpacity(0.3),
+              color: textPrimary,
+              fontSize: 14,
+              fontFamily: 'monospace',
+            ),
+            blockquote: TextStyle(
+              color: appColors.textSecondary,
+              fontStyle: FontStyle.italic,
+            ),
           ),
         ),
+      );
+    }
+
+    // 有代码块，手动处理
+    return _buildTextWithCodeBlocks(context, text, matches, textPrimary, appColors);
+  }
+
+  Widget _buildTextWithCodeBlocks(BuildContext context, String text, List<RegExpMatch> matches, Color textPrimary, AppColorExtension appColors) {
+    final widgets = <Widget>[];
+    int lastIndex = 0;
+
+    for (final match in matches) {
+      // 添加代码块之前的文本
+      if (match.start > lastIndex) {
+        final beforeText = text.substring(lastIndex, match.start);
+        if (beforeText.trim().isNotEmpty) {
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: MarkdownBody(
+                data: beforeText,
+                selectable: false,
+                styleSheet: MarkdownStyleSheet(
+                  p: TextStyle(
+                    color: textPrimary,
+                    fontSize: 15,
+                    height: 1.5,
+                  ),
+                  code: TextStyle(
+                    backgroundColor: appColors.toolBackground.withOpacity(0.3),
+                    color: textPrimary,
+                    fontSize: 14,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+      }
+
+      // 添加代码块
+      final language = (match.group(1)?.isEmpty ?? true)
+          ? _detectLanguage(match.group(2) ?? '')
+          : match.group(1)!;
+      final code = match.group(2) ?? '';
+      widgets.add(_buildCodeBlock(context, code, language, appColors, textPrimary));
+
+      lastIndex = match.end;
+    }
+
+    // 添加最后一个代码块之后的文本
+    if (lastIndex < text.length) {
+      final afterText = text.substring(lastIndex);
+      if (afterText.trim().isNotEmpty) {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: MarkdownBody(
+              data: afterText,
+              selectable: false,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(
+                  color: textPrimary,
+                  fontSize: 15,
+                  height: 1.5,
+                ),
+                code: TextStyle(
+                  backgroundColor: appColors.toolBackground.withOpacity(0.3),
+                  color: textPrimary,
+                  fontSize: 14,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: widgets,
+    );
+  }
+
+  Widget _buildCodeBlock(BuildContext context, String code, String language, AppColorExtension appColors, Color textPrimary) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dividerColor = Theme.of(context).dividerColor;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: appColors.toolBackground.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 顶部标题栏（语言标签和复制按钮）
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // 语言标签
+                Row(
+                  children: [
+                    Icon(
+                      Icons.code,
+                      size: 14,
+                      color: appColors.textSecondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      language.toUpperCase(),
+                      style: TextStyle(
+                        color: appColors.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                // 复制按钮
+                InkWell(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: code));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('代码已复制到剪贴板'),
+                        duration: Duration(seconds: 1),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.content_copy,
+                          size: 12,
+                          color: appColors.textSecondary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '复制',
+                          style: TextStyle(
+                            color: appColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 代码内容（带语法高亮）
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: appColors.codeBackground,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: SelectableText.rich(
+              TextSpan(
+                children: _buildHighlightedCode(code, language, isDark, textPrimary),
+              ),
+              style: const TextStyle(
+                fontSize: 13,
+                fontFamily: 'monospace',
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  String _detectLanguage(String code) {
+    if (code.contains('import ') && code.contains('def ')) return 'python';
+    if (code.contains('function') || code.contains('const ') || code.contains('let ')) return 'javascript';
+    if (code.contains('class ') && code.contains('public ')) return 'java';
+    if (code.contains('#include') || code.contains('int main')) return 'cpp';
+    if (code.contains('package ') && code.contains('func ')) return 'go';
+    if (code.contains('fn ') && code.contains('let mut')) return 'rust';
+    if (code.contains('<?php')) return 'php';
+    if (code.contains('SELECT ') || code.contains('FROM ')) return 'sql';
+    if (code.contains('<html') || code.contains('<div')) return 'html';
+    if (code.contains('{') && code.contains('margin:')) return 'css';
+    return 'dart';
+  }
+
+  // 构建高亮代码的 TextSpan 列表
+  List<TextSpan> _buildHighlightedCode(String code, String language, bool isDark, Color textPrimary) {
+    final theme = _getCodeTheme(isDark);
+    final lines = code.split('\n');
+    final spans = <TextSpan>[];
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (language == 'python') {
+        spans.add(_highlightPythonLine(line, theme, textPrimary));
+      } else if (language == 'javascript' || language == 'dart') {
+        spans.add(_highlightJavaScriptLine(line, theme, textPrimary));
+      } else {
+        spans.add(TextSpan(text: line, style: TextStyle(color: textPrimary)));
+      }
+      if (i < lines.length - 1) {
+        spans.add(const TextSpan(text: '\n'));
+      }
+    }
+    return spans;
+  }
+
+  TextSpan _highlightPythonLine(String line, Map<String, TextStyle> theme, Color textPrimary) {
+    final keywords = ['def', 'class', 'import', 'from', 'if', 'else', 'elif', 'for', 'while', 'return', 'try', 'except', 'finally', 'with', 'as', 'in', 'is', 'and', 'or', 'not', 'True', 'False', 'None', 'print', 'range', 'len'];
+    final keywordPattern = RegExp('\\b(${keywords.join('|')})\\b');
+    final stringPattern = RegExp(r'''(['"])(?:(?!\1).)*\1''');
+    final commentPattern = RegExp(r'#.*$');
+    return _buildLineSpan(line, textPrimary, theme, keywordPattern, stringPattern, commentPattern);
+  }
+
+  TextSpan _highlightJavaScriptLine(String line, Map<String, TextStyle> theme, Color textPrimary) {
+    final keywords = ['function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'return', 'class', 'new', 'this', 'import', 'export', 'from', 'async', 'await', 'true', 'false', 'null'];
+    final keywordPattern = RegExp('\\b(${keywords.join('|')})\\b');
+    final stringPattern = RegExp(r'''(['"`])(?:(?!\1).)*\1''');
+    final commentPattern = RegExp(r'//.*$');
+    return _buildLineSpan(line, textPrimary, theme, keywordPattern, stringPattern, commentPattern);
+  }
+
+  TextSpan _buildLineSpan(String line, Color textPrimary, Map<String, TextStyle> theme, RegExp keywordPattern, RegExp stringPattern, RegExp commentPattern) {
+    final children = <TextSpan>[];
+
+    // 检查注释（优先级最高）
+    final commentMatch = commentPattern.firstMatch(line);
+    if (commentMatch != null) {
+      if (commentMatch.start > 0) {
+        final beforeComment = line.substring(0, commentMatch.start);
+        children.addAll(_highlightSegment(beforeComment, textPrimary, theme, keywordPattern, stringPattern));
+      }
+      children.add(TextSpan(text: commentMatch.group(0), style: theme['comment']));
+      return TextSpan(children: children);
+    }
+
+    // 处理字符串、关键字
+    children.addAll(_highlightSegment(line, textPrimary, theme, keywordPattern, stringPattern));
+    return TextSpan(children: children);
+  }
+
+  List<TextSpan> _highlightSegment(String text, Color textPrimary, Map<String, TextStyle> theme, RegExp keywordPattern, RegExp stringPattern) {
+    final spans = <TextSpan>[];
+    int currentIndex = 0;
+
+    // 先处理字符串
+    for (final match in stringPattern.allMatches(text)) {
+      if (match.start > currentIndex) {
+        final beforeString = text.substring(currentIndex, match.start);
+        spans.addAll(_highlightKeywords(beforeString, textPrimary, theme, keywordPattern));
+      }
+      spans.add(TextSpan(text: match.group(0), style: theme['string']));
+      currentIndex = match.end;
+    }
+
+    if (currentIndex < text.length) {
+      final remaining = text.substring(currentIndex);
+      spans.addAll(_highlightKeywords(remaining, textPrimary, theme, keywordPattern));
+    }
+
+    return spans;
+  }
+
+  List<TextSpan> _highlightKeywords(String text, Color textPrimary, Map<String, TextStyle> theme, RegExp keywordPattern) {
+    final spans = <TextSpan>[];
+    int currentIndex = 0;
+
+    for (final match in keywordPattern.allMatches(text)) {
+      if (match.start > currentIndex) {
+        final beforeKeyword = text.substring(currentIndex, match.start);
+        spans.add(TextSpan(text: beforeKeyword, style: TextStyle(color: textPrimary)));
+      }
+      spans.add(TextSpan(text: match.group(0), style: theme['keyword']));
+      currentIndex = match.end;
+    }
+
+    if (currentIndex < text.length) {
+      spans.add(TextSpan(text: text.substring(currentIndex), style: TextStyle(color: textPrimary)));
+    }
+
+    return spans;
+  }
+
+  Map<String, TextStyle> _getCodeTheme(bool isDark) {
+    if (isDark) {
+      return {
+        'keyword': const TextStyle(color: Color(0xFFC586C0), fontWeight: FontWeight.w500),
+        'string': const TextStyle(color: Color(0xFFCE9178)),
+        'comment': const TextStyle(color: Color(0xFF6A9955), fontStyle: FontStyle.italic),
+      };
+    } else {
+      return {
+        'keyword': const TextStyle(color: Color(0xFF8B4789), fontWeight: FontWeight.w500),
+        'string': const TextStyle(color: Color(0xFF0A7D2E)),
+        'comment': const TextStyle(color: Color(0xFF008000), fontStyle: FontStyle.italic),
+      };
+    }
   }
 
   Widget _buildThinkingBlock(BuildContext context, String thinking) {
@@ -236,20 +579,53 @@ class MessageBubble extends StatelessWidget {
           ),
           if (input.isNotEmpty) ...[
             const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: appColors.codeBackground,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                JsonEncoder.withIndent('  ').convert(input),
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: 12,
-                  fontFamily: 'monospace',
+            Stack(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: appColors.codeBackground,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: SelectableText(
+                    JsonEncoder.withIndent('  ').convert(input),
+                    style: TextStyle(
+                      color: textPrimary,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
                 ),
-              ),
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: InkWell(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: JsonEncoder.withIndent('  ').convert(input)));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('参数已复制到剪贴板'),
+                          duration: Duration(seconds: 1),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: appColors.codeBackground.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Icon(
+                        Icons.copy,
+                        size: 14,
+                        color: appColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ],
@@ -317,5 +693,42 @@ class MessageBubble extends StatelessWidget {
     final hour = time.hour.toString().padLeft(2, '0');
     final minute = time.minute.toString().padLeft(2, '0');
     return '$hour:$minute';
+  }
+
+  // 复制整个消息内容
+  void _copyMessageContent(BuildContext context) {
+    final buffer = StringBuffer();
+
+    for (var block in widget.message.contentBlocks) {
+      if (block.type == ContentBlockType.text && block.text != null) {
+        buffer.writeln(block.text);
+      } else if (block.type == ContentBlockType.thinking && block.thinking != null) {
+        buffer.writeln('[思考]: ${block.thinking}');
+      } else if (block.type == ContentBlockType.toolUse) {
+        if (block.name != null) {
+          buffer.writeln('[工具调用]: ${block.name}');
+        }
+        if (block.input != null) {
+          buffer.writeln('参数: ${JsonEncoder.withIndent('  ').convert(block.input)}');
+        }
+      } else if (block.type == ContentBlockType.toolResult) {
+        if (block.toolUseId != null) {
+          buffer.writeln('[工具结果]: ${block.toolUseId}');
+        }
+        if (block.content != null) {
+          buffer.writeln(block.content.toString());
+        }
+      }
+    }
+
+    if (buffer.isNotEmpty) {
+      Clipboard.setData(ClipboardData(text: buffer.toString().trim()));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已复制到剪贴板'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
   }
 }

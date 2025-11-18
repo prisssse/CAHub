@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 import 'core/theme/app_theme.dart';
 import 'config/app_config.dart';
 import 'screens/tab_manager_screen.dart';
@@ -11,7 +12,10 @@ import 'services/app_settings_service.dart';
 import 'repositories/api_project_repository.dart';
 import 'repositories/api_codex_repository.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // 初始化 window_manager
+  await windowManager.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -43,6 +47,20 @@ class _MyAppState extends State<MyApp> {
 
   void _onSettingsChanged() {
     setState(() {}); // 重建应用以应用新设置
+    _updateWindowTitleBarColor(); // 更新标题栏颜色
+  }
+
+  Future<void> _updateWindowTitleBarColor() async {
+    final isDark = _settingsService.darkModeEnabled;
+    final backgroundColor = isDark ? const Color(0xFF121212) : const Color(0xFFFFFBF5);
+
+    await windowManager.setTitleBarStyle(
+      TitleBarStyle.normal,
+      windowButtonVisibility: true,
+    );
+
+    // 设置标题栏背景色
+    await windowManager.setBackgroundColor(backgroundColor);
   }
 
   Future<void> _initializeServices() async {
@@ -50,6 +68,9 @@ class _MyAppState extends State<MyApp> {
       await _settingsService.initialize(); // 先初始化设置
       _authService = await AuthService.getInstance();
       _configService = await ConfigService.getInstance();
+
+      // 初始化标题栏颜色
+      await _updateWindowTitleBarColor();
     } catch (e) {
       print('Error initializing services: $e');
     }

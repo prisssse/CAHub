@@ -37,6 +37,8 @@ dependencies:
 
   # Markdown rendering
   flutter_markdown: ^0.6.18
+  markdown: ^7.1.1
+  flutter_highlight: ^0.7.0
 
   # HTTP client
   http: ^1.1.0

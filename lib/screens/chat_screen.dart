@@ -48,6 +48,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   bool _userScrolling = false; // 用户是否正在手动滚动
   late Session _currentSession; // 当前session，可能在第一次发送消息时更新
   String? _currentRunId; // 当前运行的任务ID（用于停止任务，仅限 Claude Code）
+  bool _sessionProcessing = false; // 会话是否正在处理中（用于持续对话功能）
 
   // 节流相关 - 优化流式传输UI更新
   DateTime? _lastUpdateTime;
@@ -248,10 +249,28 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   Future<void> _handleSubmit(String text) async {
     if (text.trim().isEmpty || _isSending) return;
 
+    // 对于 Claude Code，如果会话正在处理中，不允许发送新消息
+    if (widget.repository is! ApiCodexRepository && _sessionProcessing) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('会话正在处理中，请等待当前消息完成'),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.only(
+            top: 16,
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.of(context).size.height - 100,
+          ),
+        ),
+      );
+      return;
+    }
+
     final userMessage = Message.user(text);
     setState(() {
       _messages.add(userMessage);
       _isSending = true;
+      _sessionProcessing = true; // 标记会话开始处理
       _userScrolling = false; // 重置手动滚动标志，确保新消息能自动滚动
     });
     _textController.clear();
@@ -398,6 +417,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           if (mounted) {
             setState(() {
               _isSending = false;
+              _sessionProcessing = false; // 标记会话处理完成
               _currentRunId = null; // 清除 run_id
             });
           }
@@ -411,12 +431,16 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       if (mounted) {
         setState(() {
           _isSending = false;
+          _sessionProcessing = false; // 标记会话处理完成
           _currentRunId = null; // 清除 run_id
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isSending = false);
+        setState(() {
+          _isSending = false;
+          _sessionProcessing = false; // 错误时也标记会话处理完成
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('发送失败: $e'),
@@ -454,6 +478,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       if (mounted) {
         setState(() {
           _isSending = false;
+          _sessionProcessing = false; // 停止任务后重置会话状态
           _currentRunId = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -472,6 +497,12 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     } catch (e) {
       print('DEBUG: Failed to stop task: $e');
       if (mounted) {
+        // 即使停止失败，也应该重置状态，让用户可以继续操作
+        setState(() {
+          _isSending = false;
+          _sessionProcessing = false;
+          _currentRunId = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('停止失败: $e'),
@@ -795,10 +826,16 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                                   physics: PlatformHelper.getScrollPhysics(),
                                   padding: const EdgeInsets.symmetric(vertical: 8),
                                   itemCount: _messages.length,
+                                  cacheExtent: 1000, // 增加缓存范围，减少重建
+                                  addAutomaticKeepAlives: true, // 保持已构建的item
+                                  addRepaintBoundaries: true, // 添加重绘边界，隔离重绘
                                   itemBuilder: (context, index) {
-                                    return MessageBubble(
-                                      message: _messages[index],
-                                      hideToolCalls: _effectiveHideToolCalls,
+                                    return RepaintBoundary(
+                                      child: MessageBubble(
+                                        key: ValueKey(_messages[index].id),
+                                        message: _messages[index],
+                                        hideToolCalls: _effectiveHideToolCalls,
+                                      ),
                                     );
                                   },
                                 ),
@@ -811,10 +848,16 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                                 physics: PlatformHelper.getScrollPhysics(),
                                 padding: const EdgeInsets.symmetric(vertical: 8),
                                 itemCount: _messages.length,
+                                cacheExtent: 1000, // 增加缓存范围，减少重建
+                                addAutomaticKeepAlives: true, // 保持已构建的item
+                                addRepaintBoundaries: true, // 添加重绘边界，隔离重绘
                                 itemBuilder: (context, index) {
-                                  return MessageBubble(
-                                    message: _messages[index],
-                                    hideToolCalls: _effectiveHideToolCalls,
+                                  return RepaintBoundary(
+                                    child: MessageBubble(
+                                      key: ValueKey(_messages[index].id),
+                                      message: _messages[index],
+                                      hideToolCalls: _effectiveHideToolCalls,
+                                    ),
                                   );
                                 },
                               ),
@@ -1184,10 +1227,12 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
               ],
               // 发送按钮
               Material(
-                color: _isSending ? appColors.textTertiary : primaryColor,
+                color: (_isSending || (widget.repository is! ApiCodexRepository && _sessionProcessing))
+                    ? appColors.textTertiary
+                    : primaryColor,
                 borderRadius: BorderRadius.circular(24),
                 child: InkWell(
-                  onTap: _isSending
+                  onTap: (_isSending || (widget.repository is! ApiCodexRepository && _sessionProcessing))
                       ? null
                       : () => _handleSubmit(_textController.text),
                   borderRadius: BorderRadius.circular(24),
@@ -1195,7 +1240,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                     width: 48,
                     height: 48,
                     alignment: Alignment.center,
-                    child: _isSending
+                    child: (_isSending || (widget.repository is! ApiCodexRepository && _sessionProcessing))
                         ? const SizedBox(
                             width: 20,
                             height: 20,
