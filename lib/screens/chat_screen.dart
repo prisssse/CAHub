@@ -373,6 +373,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           if (mounted) {
             setState(() => _isSending = false);
           }
+          // 消息完成，通知标签页
+          widget.onMessageComplete?.call();
           return;
         }
       }
@@ -381,7 +383,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         setState(() => _isSending = false);
       }
 
-      // 整个消息流结束后才通知标签页有新回复（如果当前不在焦点）
+      // 整个消息流结束后才通知标签页有新回复
       widget.onMessageComplete?.call();
     } catch (e) {
       if (mounted) {

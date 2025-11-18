@@ -282,23 +282,57 @@ class _TabManagerScreenState extends State<TabManagerScreen>
 
   // 处理标签的消息完成通知
   void _handleMessageComplete(int tabIndex) {
-    // 只有当标签不是当前活动标签时才显示通知
+    print('DEBUG: _handleMessageComplete called, tabIndex=$tabIndex, currentIndex=$_currentIndex');
+
+    // 检查是否启用了通知
+    final settingsService = AppSettingsService();
+    print('DEBUG: notificationsEnabled=${settingsService.notificationsEnabled}');
+
+    if (!settingsService.notificationsEnabled) {
+      print('DEBUG: Notifications disabled, skipping');
+      return; // 通知已禁用，不显示
+    }
+
+    // 播放通知提示音
+    final soundService = NotificationSoundService();
+    soundService.setVolume(settingsService.notificationVolume);
+    soundService.playNotificationSound();
+
+    // 如果是当前标签页，显示简短的 SnackBar 提示
+    if (tabIndex == _currentIndex && tabIndex < _tabs.length) {
+      print('DEBUG: Showing completion notification for current tab');
+      if (context.mounted) {
+        final primaryColor = Theme.of(context).colorScheme.primary;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                const Text('消息已完成'),
+              ],
+            ),
+            backgroundColor: primaryColor,
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              bottom: MediaQuery.of(context).size.height - 100,
+              left: 16,
+              right: 16,
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // 后台标签页的通知（保持原有逻辑）
     if (tabIndex != _currentIndex && tabIndex < _tabs.length) {
+      print('DEBUG: Showing notification for background tab');
       setState(() {
         _tabs[tabIndex].hasNewReply = true;
         _tabs[tabIndex].hasNewReplyNotifier.value = true;
       });
-
-      // 检查是否启用了通知
-      final settingsService = AppSettingsService();
-      if (!settingsService.notificationsEnabled) {
-        return; // 通知已禁用，不显示
-      }
-
-      // 播放通知提示音
-      final soundService = NotificationSoundService();
-      soundService.setVolume(settingsService.notificationVolume);
-      soundService.playNotificationSound();
 
       // 显示通知界面
       if (context.mounted) {
