@@ -178,4 +178,17 @@ class ApiService {
       throw Exception('Failed to update user settings: ${response.statusCode}');
     }
   }
+
+  // Stop a running chat task
+  Future<void> stopChat(String runId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/chat/stop'),
+      headers: _getHeaders(),
+      body: json.encode({'run_id': runId}),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 404) {
+      throw Exception('Failed to stop chat: ${response.statusCode}');
+    }
+  }
 }

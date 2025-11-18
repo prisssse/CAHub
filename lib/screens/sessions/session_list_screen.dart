@@ -129,23 +129,34 @@ class _SessionListScreenState extends State<SessionListScreen> {
       return _buildProjectSelector();
     }
 
-    return Scaffold(
-      backgroundColor: backgroundColor,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            // 如果有 onBack 回调，使用回调（标签页模式）
-            if (widget.onBack != null) {
-              widget.onBack!();
-            } else {
-              // 否则使用 Navigator.pop（导航模式）
-              Navigator.of(context).pop();
-            }
-          },
+    return PopScope(
+      canPop: widget.onBack == null, // 如果有 onBack 回调，不允许默认 pop
+      onPopInvoked: (didPop) {
+        // 如果已经 pop 了（使用默认行为），不需要再处理
+        if (didPop) return;
+
+        // 如果有 onBack 回调，使用回调
+        if (widget.onBack != null) {
+          widget.onBack!();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: backgroundColor,
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              // 如果有 onBack 回调，使用回调（标签页模式）
+              if (widget.onBack != null) {
+                widget.onBack!();
+              } else {
+                // 否则使用 Navigator.pop（导航模式）
+                Navigator.of(context).pop();
+              }
+            },
+          ),
+          title: Text(widget.project?.name ?? '会话'),
         ),
-        title: Text(widget.project?.name ?? '会话'),
-      ),
       floatingActionButton: widget.isSelectMode
           ? null
           : FloatingActionButton(
@@ -187,6 +198,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                       },
                     ),
             ),
+      ),
     );
   }
 

@@ -11,6 +11,7 @@ class MessageStreamEvent {
   final String? error;
   final bool isDone;
   final String? sessionId; // 新创建的session ID（用于新对话）
+  final String? runId; // 运行ID（用于停止任务）
 
   MessageStreamEvent({
     this.partialMessage,
@@ -19,6 +20,7 @@ class MessageStreamEvent {
     this.error,
     this.isDone = false,
     this.sessionId,
+    this.runId,
   });
 }
 

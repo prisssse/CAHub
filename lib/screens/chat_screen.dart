@@ -47,6 +47,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   bool _showStats = false; // 是否显示统计信息
   bool _userScrolling = false; // 用户是否正在手动滚动
   late Session _currentSession; // 当前session，可能在第一次发送消息时更新
+  String? _currentRunId; // 当前运行的任务ID（用于停止任务，仅限 Claude Code）
 
   // 节流相关 - 优化流式传输UI更新
   DateTime? _lastUpdateTime;
@@ -264,13 +265,27 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       final sessionIdToUse = _currentSession.id.isEmpty ? null : _currentSession.id;
       bool sessionIdUpdated = false; // 标记是否已更新session id
 
-      await for (var event in widget.repository.sendMessageStream(
-        sessionId: sessionIdToUse,
-        content: text,
-        cwd: _currentSession.cwd, // 传递工作目录
-        settings: _settings, // Claude Code 设置
-        codexSettings: _codexSettings, // Codex 设置
-      )) {
+      // 根据 repository 类型调用不同的 sendMessageStream
+      final Stream<dynamic> eventStream;
+      if (widget.repository is ApiCodexRepository) {
+        // Codex 使用 codexSettings
+        eventStream = widget.repository.sendMessageStream(
+          sessionId: sessionIdToUse,
+          content: text,
+          cwd: _currentSession.cwd,
+          codexSettings: _codexSettings,
+        );
+      } else {
+        // Claude Code 使用 settings
+        eventStream = widget.repository.sendMessageStream(
+          sessionId: sessionIdToUse,
+          content: text,
+          cwd: _currentSession.cwd,
+          settings: _settings,
+        );
+      }
+
+      await for (var event in eventStream) {
         // 捕获新创建的session ID
         if (event.sessionId != null && event.sessionId!.isNotEmpty) {
           if (_currentSession.id.isEmpty && !sessionIdUpdated) {
@@ -287,6 +302,16 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
             );
             sessionIdUpdated = true;
             print('DEBUG: Updated session ID to ${event.sessionId}');
+          }
+        }
+
+        // 捕获 run_id（用于停止任务，仅限 Claude Code）
+        if (event.runId != null && event.runId!.isNotEmpty) {
+          if (mounted) {
+            setState(() {
+              _currentRunId = event.runId;
+            });
+            print('DEBUG: Captured run_id: ${event.runId}');
           }
         }
 
@@ -371,7 +396,10 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
 
         if (event.isDone) {
           if (mounted) {
-            setState(() => _isSending = false);
+            setState(() {
+              _isSending = false;
+              _currentRunId = null; // 清除 run_id
+            });
           }
           // 消息完成，通知标签页
           widget.onMessageComplete?.call();
@@ -379,18 +407,74 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         }
       }
 
+      // 如果流结束但没有收到 isDone 事件（不应该发生，但作为后备）
       if (mounted) {
-        setState(() => _isSending = false);
+        setState(() {
+          _isSending = false;
+          _currentRunId = null; // 清除 run_id
+        });
       }
-
-      // 整个消息流结束后才通知标签页有新回复
-      widget.onMessageComplete?.call();
     } catch (e) {
       if (mounted) {
         setState(() => _isSending = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('发送失败: $e'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleStop() async {
+    // 只有 Claude Code 支持停止功能
+    if (widget.repository is ApiCodexRepository) {
+      return;
+    }
+
+    // 检查是否有 run_id
+    if (_currentRunId == null || _currentRunId!.isEmpty) {
+      print('DEBUG: No run_id available to stop');
+      return;
+    }
+
+    try {
+      print('DEBUG: Stopping task with run_id: $_currentRunId');
+      // 调用 repository 的 stopChat 方法
+      final repository = widget.repository as dynamic;
+      await repository.stopChat(_currentRunId!);
+
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+          _currentRunId = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('已停止任务'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print('DEBUG: Failed to stop task: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('停止失败: $e'),
             behavior: SnackBarBehavior.floating,
             margin: EdgeInsets.only(
               top: 16,
@@ -606,15 +690,26 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   @override
   Widget build(BuildContext context) {
     super.build(context); // 必须调用以保持状态
-    return Scaffold(
-      appBar: AppBar(
-        leading: widget.onBack != null
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: widget.onBack,
-                tooltip: '返回项目列表',
-              )
-            : null,
+    return PopScope(
+      canPop: widget.onBack == null, // 如果有 onBack 回调，不允许默认 pop
+      onPopInvoked: (didPop) {
+        // 如果已经 pop 了（使用默认行为），不需要再处理
+        if (didPop) return;
+
+        // 如果有 onBack 回调，使用回调
+        if (widget.onBack != null) {
+          widget.onBack!();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: widget.onBack != null
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: widget.onBack,
+                  tooltip: '返回项目列表',
+                )
+              : null,
         title: Row(
           children: [
             Expanded(
@@ -735,8 +830,9 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           if (_lastMessageStats != null) _buildStatsPanel(),
           _buildInputArea(),
         ],
-      ),
-    );
+      ), // body: Column 结束
+    ), // Scaffold 结束
+  ); // PopScope 结束
   }
 
   Widget _buildStatsPanel() {
@@ -1065,6 +1161,28 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                 ),
               ),
               const SizedBox(width: 8),
+              // 停止按钮（仅在发送中且为 Claude Code 时显示）
+              if (_isSending && widget.repository is! ApiCodexRepository) ...[
+                Material(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(24),
+                  child: InkWell(
+                    onTap: _handleStop,
+                    borderRadius: BorderRadius.circular(24),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.stop,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              // 发送按钮
               Material(
                 color: _isSending ? appColors.textTertiary : primaryColor,
                 borderRadius: BorderRadius.circular(24),

@@ -249,6 +249,16 @@ class ApiSessionRepository implements SessionRepository {
         final eventType = event['event_type'];
         print('DEBUG SSE: Received event type: $eventType');
 
+        // 处理 'run' 事件，捕获 run_id 用于停止任务
+        if (eventType == 'run') {
+          final runId = event['run_id'] as String?;
+          if (runId != null && runId.isNotEmpty) {
+            yield MessageStreamEvent(runId: runId);
+            print('DEBUG SSE: Captured run_id: $runId');
+          }
+          continue;
+        }
+
         // 捕获session_id（通常在第一个事件中）
         if (!sessionIdEmitted && event['session_id'] != null) {
           createdSessionId = event['session_id'] as String?;
@@ -593,5 +603,10 @@ class ApiSessionRepository implements SessionRepository {
   @override
   Future<void> updateUserSettings(String userId, ClaudeUserSettings settings) async {
     await _apiService.updateUserSettings(userId, settings.toJson());
+  }
+
+  // 停止运行中的任务
+  Future<void> stopChat(String runId) async {
+    await _apiService.stopChat(runId);
   }
 }

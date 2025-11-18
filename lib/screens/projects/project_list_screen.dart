@@ -432,11 +432,22 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
     final cardColor = Theme.of(context).cardColor;
     final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
 
-    return Scaffold(
-      backgroundColor: backgroundColor,
-      appBar: AppBar(
-        title: _buildBackendSelector(primaryColor, cardColor, backgroundColor),
-        actions: [
+    return PopScope(
+      canPop: widget.onGoBack == null, // 如果有 onGoBack 回调，不允许默认 pop
+      onPopInvoked: (didPop) {
+        // 如果已经 pop 了（使用默认行为），不需要再处理
+        if (didPop) return;
+
+        // 如果有 onGoBack 回调，使用回调
+        if (widget.onGoBack != null) {
+          widget.onGoBack!();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: backgroundColor,
+        appBar: AppBar(
+          title: _buildBackendSelector(primaryColor, cardColor, backgroundColor),
+          actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _reloadSessionsFromDisk,
@@ -500,6 +511,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
                       },
                     ),
             ),
+      ),
     );
   }
 

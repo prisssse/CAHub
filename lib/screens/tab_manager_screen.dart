@@ -31,6 +31,8 @@ class TabInfo {
   final ValueNotifier<bool> hasNewReplyNotifier; // 新回复通知器
   final Widget? previousContent; // 上一个界面（用于返回）
   final String? previousTitle; // 上一个界面的标题
+  final Widget? previousPreviousContent; // 更深一层的历史界面
+  final String? previousPreviousTitle; // 更深一层的历史标题
 
   TabInfo({
     required this.id,
@@ -40,6 +42,8 @@ class TabInfo {
     this.hasNewReply = false,
     this.previousContent,
     this.previousTitle,
+    this.previousPreviousContent,
+    this.previousPreviousTitle,
   }) : hasNewReplyNotifier = ValueNotifier<bool>(hasNewReply);
 
   void dispose() {
@@ -123,6 +127,9 @@ class _TabManagerScreenState extends State<TabManagerScreen>
       content: content,
       previousContent: currentTab.content, // 保存当前内容，用于返回
       previousTitle: currentTab.title, // 保存当前标题
+      // 保存更深一层的历史（如果当前tab已经有历史的话）
+      previousPreviousContent: currentTab.previousContent,
+      previousPreviousTitle: currentTab.previousTitle,
     );
 
     setState(() {
@@ -133,13 +140,24 @@ class _TabManagerScreenState extends State<TabManagerScreen>
   void _goBackInCurrentTab() {
     final currentTab = _tabs[_currentIndex];
 
-    // 如果有之前的内容，恢复到之前的内容
-    if (currentTab.previousContent != null) {
+    // 找到最底层的主页内容
+    Widget? targetContent = currentTab.previousContent;
+    String? targetTitle = currentTab.previousTitle;
+
+    // 如果有更深层的历史，一直往下找到最底层
+    if (currentTab.previousPreviousContent != null) {
+      targetContent = currentTab.previousPreviousContent;
+      targetTitle = currentTab.previousPreviousTitle;
+    }
+
+    // 如果有之前的内容，恢复到最底层的内容（主页）
+    if (targetContent != null) {
       final restoredTab = TabInfo(
         id: 'home_${DateTime.now().millisecondsSinceEpoch}',
         type: TabType.home,
-        title: currentTab.previousTitle ?? '主页',
-        content: currentTab.previousContent!,
+        title: targetTitle ?? '主页',
+        content: targetContent,
+        // 不再保留历史，直接回到主页
       );
 
       setState(() {
@@ -189,11 +207,14 @@ class _TabManagerScreenState extends State<TabManagerScreen>
 
     // 替换当前标签页（需要先dispose旧的）
     setState(() {
-      // 保存当前界面，以便返回时恢复
-      final previousContent = _tabs[_currentIndex].content;
-      final previousTitle = _tabs[_currentIndex].title;
+      // 保存当前界面及其历史，以便返回时恢复
+      final currentTab = _tabs[_currentIndex];
+      final previousContent = currentTab.content;
+      final previousTitle = currentTab.title;
+      final previousPreviousContent = currentTab.previousContent;
+      final previousPreviousTitle = currentTab.previousTitle;
 
-      _tabs[_currentIndex].dispose();
+      currentTab.dispose();
       _tabs[_currentIndex] = TabInfo(
         id: 'chat_$sessionId',
         type: TabType.chat,
@@ -201,6 +222,9 @@ class _TabManagerScreenState extends State<TabManagerScreen>
         content: wrappedWidget,
         previousContent: previousContent,
         previousTitle: previousTitle,
+        // 保留更深层次的历史
+        previousPreviousContent: previousPreviousContent,
+        previousPreviousTitle: previousPreviousTitle,
       );
     });
   }
@@ -215,6 +239,9 @@ class _TabManagerScreenState extends State<TabManagerScreen>
         type: TabType.home,
         title: currentTab.previousTitle ?? '主页',
         content: currentTab.previousContent!,
+        // 保留更深层次的历史，这样从会话列表还能返回到主页
+        previousContent: currentTab.previousPreviousContent,
+        previousTitle: currentTab.previousPreviousTitle,
       );
 
       setState(() {
