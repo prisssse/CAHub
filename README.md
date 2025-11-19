@@ -173,11 +173,14 @@ flutter build apk --release
 flutter build ios --release
 ```
 
-## 快速开始
+## 使用方式
 
-1. 启动应用，点击设置图标
-2. 配置 Claude Code API URL 和/或 Codex API URL
-3. 保存设置，选择项目开始对话
+1. 在本地电脑启动后端服务（服务端链接见上方）
+2. 在任意设备上打开 CodeAgent Hub 应用
+3. 在登录界面输入本地电脑的 IP 地址（如 `http://192.168.1.100:8000`）
+4. 登录后即可在手机、平板等设备上远程使用电脑上的 Claude Code / Codex
+
+> 提示：确保本地电脑和使用设备在同一局域网内，或配置好端口转发/内网穿透
 
 ## 常见问题
 
