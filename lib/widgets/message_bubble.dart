@@ -658,7 +658,28 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
   }
 
   Widget _buildToolResultBlock(BuildContext context, {required dynamic content, required bool isError}) {
-    final displayContent = content?.toString() ?? '';
+    // 提取文本内容
+    String displayContent = '';
+    if (content is String) {
+      displayContent = content;
+    } else if (content is List) {
+      final buffer = StringBuffer();
+      for (var item in content) {
+        if (item is Map) {
+          if (item['type'] == 'text') {
+            buffer.writeln(item['text'] ?? '');
+          } else if (item['type'] == 'image') {
+            buffer.writeln('[图片]');
+          }
+        } else if (item is String) {
+          buffer.writeln(item);
+        }
+      }
+      displayContent = buffer.toString().trim();
+    } else if (content != null) {
+      displayContent = content.toString();
+    }
+
     if (displayContent.isEmpty) return const SizedBox.shrink();
 
     final appColors = context.appColors;

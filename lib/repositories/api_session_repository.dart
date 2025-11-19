@@ -487,14 +487,27 @@ class ApiSessionRepository implements SessionRepository {
                   'input': {},
                 };
               } else if (blockType == 'tool_result') {
-                // 处理工具结果块
-                state.toolUseBlocks[index] = {
-                  'type': 'tool_result',
-                  'tool_use_id': contentBlock['tool_use_id'],
-                  'content': contentBlock['content'],
-                  'is_error': contentBlock['is_error'],
-                };
-                print('DEBUG SSE: tool_result block started at index $index');
+                // 处理工具结果块 - tool_result 通常不会出现在 stream_event 中
+                // 它们通常通过 message 事件（type='user'）发送
+                // 但如果确实收到了，我们需要立即发送它
+                print('DEBUG SSE: tool_result block received in stream_event at index $index');
+                final toolResultBlock = ContentBlock(
+                  type: ContentBlockType.toolResult,
+                  toolUseId: contentBlock['tool_use_id'] as String?,
+                  content: contentBlock['content'],
+                  isError: contentBlock['is_error'] as bool?,
+                );
+
+                // 立即发送 tool_result 作为独立的 assistant 消息
+                final toolResultMessageId = 'tool_result_${DateTime.now().millisecondsSinceEpoch}_$index';
+                print('DEBUG SSE: Emitting tool_result as separate message with ID: $toolResultMessageId');
+                yield MessageStreamEvent(
+                  finalMessage: Message.fromBlocks(
+                    id: toolResultMessageId,
+                    role: MessageRole.assistant,
+                    blocks: [toolResultBlock],
+                  ),
+                );
               }
             }
           } else if (streamEventType == 'content_block_delta') {
@@ -629,8 +642,12 @@ class ApiSessionRepository implements SessionRepository {
           if (payload != null && payloadType == 'user') {
             // User type message (usually contains tool_result)
             print('DEBUG SSE: Processing user message (likely tool_result)');
-            final messageId = payload['id'] as String?;
-            final messageContent = payload['content'];
+            print('DEBUG SSE: Full user payload: ${json.encode(payload)}');
+
+            // Extract message object and content - tool_result is inside message.content
+            final message = payload['message'];
+            final messageId = payload['uuid'] as String? ?? payload['id'] as String?;
+            final messageContent = message != null ? message['content'] : null;
             print('DEBUG SSE: User message content type: ${messageContent.runtimeType}, content: $messageContent');
 
             if (messageContent is List) {
@@ -838,17 +855,9 @@ class ApiSessionRepository implements SessionRepository {
             input: toolBlock['input'] as Map<String, dynamic>?,
           ));
         }
-      } else if (blockType == 'tool_result' && toolBlocks.containsKey(index)) {
-        // Include tool_result blocks (usually finalized immediately)
-        final toolBlock = toolBlocks[index]!;
-        blocks.add(ContentBlock(
-          type: ContentBlockType.toolResult,
-          toolUseId: toolBlock['tool_use_id'] as String?,
-          content: toolBlock['content'],
-          isError: toolBlock['is_error'] as bool?,
-        ));
-        print('DEBUG SSE: Added tool_result block to message');
       }
+      // tool_result blocks are now emitted as separate messages immediately in content_block_start
+      // so we don't include them in _buildContentBlocks to avoid duplication
     }
 
     return blocks;

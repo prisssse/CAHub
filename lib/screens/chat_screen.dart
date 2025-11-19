@@ -1711,40 +1711,11 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                 itemCount: commands.length,
                 itemBuilder: (context, index) {
                   final cmd = commands[index];
-                  return MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: InkWell(
-                      onTap: () => _selectCommand(cmd['name']!),
-                      hoverColor: primaryColor.withOpacity(0.08),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              cmd['name']!,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: primaryColor,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              cmd['description']!,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: appColors.textSecondary,
-                                height: 1.3,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                  return _CommandItem(
+                    command: cmd,
+                    primaryColor: primaryColor,
+                    textSecondary: appColors.textSecondary,
+                    onTap: () => _selectCommand(cmd['name']!),
                   );
                 },
               ),
@@ -1763,5 +1734,70 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     _scrollController.dispose();
     _inputFocusNode.dispose();
     super.dispose();
+  }
+}
+
+// 命令项组件 - 使用 StatefulWidget 来实现 hover 效果
+class _CommandItem extends StatefulWidget {
+  final Map<String, String> command;
+  final Color primaryColor;
+  final Color textSecondary;
+  final VoidCallback onTap;
+
+  const _CommandItem({
+    required this.command,
+    required this.primaryColor,
+    required this.textSecondary,
+    required this.onTap,
+  });
+
+  @override
+  State<_CommandItem> createState() => _CommandItemState();
+}
+
+class _CommandItemState extends State<_CommandItem> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          color: _isHovered
+              ? widget.primaryColor.withOpacity(0.08)
+              : Colors.transparent,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.command['name']!,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: widget.primaryColor,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                widget.command['description']!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: widget.textSecondary,
+                  height: 1.3,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
