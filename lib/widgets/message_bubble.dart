@@ -503,6 +503,8 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
           fit: BoxFit.contain,
           gaplessPlayback: true, // 防止图片闪烁
           cacheWidth: 600, // 缓存宽度，提高性能
+          cacheHeight: 600, // 缓存高度，限制内存使用
+          filterQuality: FilterQuality.medium, // 平衡质量和性能
           errorBuilder: (context, error, stackTrace) {
             return Container(
               padding: const EdgeInsets.all(16),

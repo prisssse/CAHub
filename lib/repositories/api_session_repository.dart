@@ -153,6 +153,23 @@ class ApiSessionRepository implements SessionRepository {
               content: item['content'],
               isError: item['is_error'] as bool?,
             ));
+          } else if (itemType == 'image') {
+            // 解析图片块
+            final source = item['source'];
+            if (source is Map<String, dynamic>) {
+              final sourceType = source['type'] as String?;
+              final mediaType = source['media_type'] as String?;
+              final data = source['data'] as String?;
+
+              if (sourceType == 'base64' && data != null && data.isNotEmpty) {
+                blocks.add(ContentBlock(
+                  type: ContentBlockType.image,
+                  imageSource: sourceType,
+                  imageMediaType: mediaType ?? 'image/jpeg',
+                  imageData: data,
+                ));
+              }
+            }
           }
           // 如果是未知类型，忽略它（不再添加 fallback）
         } else if (item is String && item.isNotEmpty) {
