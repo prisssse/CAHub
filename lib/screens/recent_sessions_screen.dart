@@ -85,6 +85,7 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
   }
 
   Future<void> _loadRecentSessions() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       // 获取所有项目
@@ -100,12 +101,14 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
       // 按 updatedAt 降序排序
       allSessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
+      if (!mounted) return;
       setState(() {
         _recentSessions = allSessions;
         _isLoading = false;
         _lastRefreshTime = DateTime.now(); // 记录刷新时间
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
     }
   }
