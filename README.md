@@ -141,7 +141,6 @@ flutter doctor
 ```bash
 # 克隆项目
 git clone <repository-url>
-cd cc_mobile
 
 # 安装依赖
 flutter pub get
