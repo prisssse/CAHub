@@ -1178,7 +1178,12 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                           children: [
                             // 桌面版使用SelectionArea包装，允许自由选择文本
                             PlatformHelper.shouldEnableTextSelection
-                                ? SelectionArea(
+                                ? Listener(
+                                    onPointerDown: (_) {
+                                      // 点击消息区域时，让输入框失去焦点，以便SelectionArea可以选择文本
+                                      _inputFocusNode.unfocus();
+                                    },
+                                    child: SelectionArea(
                                     child: NotificationListener<ScrollNotification>(
                                       onNotification: _handleScrollNotification,
                                       child: ListView.builder(
@@ -1205,7 +1210,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                                   },
                                 ),
                               ),
-                            )
+                            ),
+                          )
                           : NotificationListener<ScrollNotification>(
                               onNotification: _handleScrollNotification,
                               child: ListView.builder(
