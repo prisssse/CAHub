@@ -68,6 +68,14 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   // 消息导航相关
   int _currentUserMessageIndex = -1; // 当前定位到的用户消息索引（从下往上数）
 
+  // 消息分页加载相关
+  List<Message> _allMessages = []; // 所有消息（后端返回的完整列表）
+  static const int _initialMessageCount = 100; // 初始加载的消息数量
+  static const int _loadMoreCount = 50; // 每次加载更多的数量
+  bool _hasMoreMessages = false; // 是否有更多历史消息
+  bool _isLoadingMore = false; // 是否正在加载更多
+  double _messagesOpacity = 0.0; // 消息列表透明度（用于淡入动画）
+
   // 斜杠命令相关
   bool _showCommandSuggestions = false; // 是否显示命令建议
   String _commandQuery = ''; // 当前的命令查询
@@ -240,6 +248,15 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           }
         }
       }
+
+      // 当滚动到接近顶部时，加载更多历史消息
+      if (_scrollController.hasClients && _hasMoreMessages && !_isLoadingMore) {
+        final scrollPosition = _scrollController.position.pixels;
+        // 当距离顶部小于200像素时触发加载
+        if (scrollPosition < 200) {
+          _loadMoreMessages();
+        }
+      }
     }
     return false;
   }
@@ -257,14 +274,36 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     try {
       final messages = await widget.repository.getSessionMessages(widget.session.id);
       print('DEBUG ChatScreen: Loaded ${messages.length} messages');
+
+      // 保存所有消息
+      _allMessages = messages;
+
+      // 只显示最后 _initialMessageCount 条消息
+      final displayMessages = messages.length > _initialMessageCount
+          ? messages.sublist(messages.length - _initialMessageCount)
+          : messages;
+
       setState(() {
         _messages.clear();
-        _messages.addAll(messages);
+        _messages.addAll(displayMessages);
+        _hasMoreMessages = messages.length > _initialMessageCount;
         _isLoading = false;
+        _messagesOpacity = 0.0; // 初始透明
       });
+
+      print('DEBUG ChatScreen: Displaying ${_messages.length} messages, hasMore: $_hasMoreMessages');
+
       // 确保在消息加载后滚动到底部，使用 jumpTo 直接跳转
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToBottomImmediate();
+        // 触发淡入动画
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (mounted) {
+            setState(() {
+              _messagesOpacity = 1.0;
+            });
+          }
+        });
       });
       // 延迟再次确保滚动到底部（给更长时间让消息渲染完成）
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -276,6 +315,56 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       print('DEBUG ChatScreen: Error loading messages: $e');
       setState(() => _isLoading = false);
     }
+  }
+
+  // 加载更多历史消息（当用户滚动到顶部时触发）
+  void _loadMoreMessages() {
+    if (_isLoadingMore || !_hasMoreMessages) return;
+
+    setState(() => _isLoadingMore = true);
+
+    // 短暂延迟让加载动画显示
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+
+      // 计算还有多少消息未显示
+      final hiddenCount = _allMessages.length - _messages.length;
+      if (hiddenCount <= 0) {
+        setState(() {
+          _isLoadingMore = false;
+          _hasMoreMessages = false;
+        });
+        return;
+      }
+
+      // 计算要加载的消息
+      final loadCount = hiddenCount > _loadMoreCount ? _loadMoreCount : hiddenCount;
+      final startIndex = hiddenCount - loadCount;
+      final moreMessages = _allMessages.sublist(startIndex, startIndex + loadCount);
+
+      // 在插入消息前保存滚动位置
+      final currentScrollOffset = _scrollController.position.pixels;
+      final currentMaxExtent = _scrollController.position.maxScrollExtent;
+
+      setState(() {
+        // 在列表开头插入更多消息
+        _messages.insertAll(0, moreMessages);
+        _hasMoreMessages = startIndex > 0;
+        _isLoadingMore = false;
+      });
+
+      print('DEBUG ChatScreen: Loaded $loadCount more messages, total displaying: ${_messages.length}, hasMore: $_hasMoreMessages');
+
+      // 恢复滚动位置 - 保持用户看到的内容不变
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          final newMaxExtent = _scrollController.position.maxScrollExtent;
+          final addedHeight = newMaxExtent - currentMaxExtent;
+          // 将滚动位置向下移动，补偿新增内容的高度
+          _scrollController.jumpTo(currentScrollOffset + addedHeight);
+        }
+      });
+    });
   }
 
   // 刷新当前对话
@@ -1051,28 +1140,39 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
               ),
             ),
           Expanded(
-            child: _messages.isEmpty
+            child: _messages.isEmpty && !_isLoading
                 ? _buildEmptyState()
-                : Stack(
-                    children: [
-                      // 桌面版使用SelectionArea包装，允许自由选择文本
-                      PlatformHelper.shouldEnableTextSelection
-                          ? SelectionArea(
-                              child: NotificationListener<ScrollNotification>(
-                                onNotification: _handleScrollNotification,
-                                child: ListView.builder(
+                : _messages.isEmpty && _isLoading
+                    ? _buildLoadingState()
+                    : AnimatedOpacity(
+                        opacity: _messagesOpacity,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOut,
+                        child: Stack(
+                          children: [
+                            // 桌面版使用SelectionArea包装，允许自由选择文本
+                            PlatformHelper.shouldEnableTextSelection
+                                ? SelectionArea(
+                                    child: NotificationListener<ScrollNotification>(
+                                      onNotification: _handleScrollNotification,
+                                      child: ListView.builder(
                                   controller: _scrollController,
                                   physics: PlatformHelper.getScrollPhysics(),
                                   padding: const EdgeInsets.symmetric(vertical: 8),
-                                  itemCount: _messages.length,
+                                  itemCount: _messages.length + (_isLoadingMore || _hasMoreMessages ? 1 : 0),
                                   cacheExtent: 1000, // 增加缓存范围，减少重建
                                   addAutomaticKeepAlives: true, // 保持已构建的item
                                   addRepaintBoundaries: true, // 添加重绘边界，隔离重绘
                                   itemBuilder: (context, index) {
+                                    // 第一个item显示加载指示器
+                                    if ((_isLoadingMore || _hasMoreMessages) && index == 0) {
+                                      return _buildLoadMoreIndicator();
+                                    }
+                                    final messageIndex = (_isLoadingMore || _hasMoreMessages) ? index - 1 : index;
                                     return RepaintBoundary(
                                       child: MessageBubble(
-                                        key: ValueKey(_messages[index].id),
-                                        message: _messages[index],
+                                        key: ValueKey(_messages[messageIndex].id),
+                                        message: _messages[messageIndex],
                                         hideToolCalls: _effectiveHideToolCalls,
                                       ),
                                     );
@@ -1086,28 +1186,34 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                                 controller: _scrollController,
                                 physics: PlatformHelper.getScrollPhysics(),
                                 padding: const EdgeInsets.symmetric(vertical: 8),
-                                itemCount: _messages.length,
+                                itemCount: _messages.length + (_isLoadingMore || _hasMoreMessages ? 1 : 0),
                                 cacheExtent: 1000, // 增加缓存范围，减少重建
                                 addAutomaticKeepAlives: true, // 保持已构建的item
                                 addRepaintBoundaries: true, // 添加重绘边界，隔离重绘
                                 itemBuilder: (context, index) {
+                                  // 第一个item显示加载指示器
+                                  if ((_isLoadingMore || _hasMoreMessages) && index == 0) {
+                                    return _buildLoadMoreIndicator();
+                                  }
+                                  final messageIndex = (_isLoadingMore || _hasMoreMessages) ? index - 1 : index;
                                   return RepaintBoundary(
                                     child: MessageBubble(
-                                      key: ValueKey(_messages[index].id),
-                                      message: _messages[index],
+                                      key: ValueKey(_messages[messageIndex].id),
+                                      message: _messages[messageIndex],
                                       hideToolCalls: _effectiveHideToolCalls,
                                     ),
                                   );
                                 },
                               ),
                             ),
-                      // 消息导航按钮（在右下角）- 暂时禁用
-                      // if (_messages.where((m) => _isRealUserMessage(m)).length > 1)
-                      //   _buildMessageNavigationButtons(),
-                      // 滚动到底部按钮
-                      if (_userScrolling) _buildScrollToBottomButton(),
-                    ],
-                  ),
+                            // 消息导航按钮（在右下角）- 暂时禁用
+                            // if (_messages.where((m) => _isRealUserMessage(m)).length > 1)
+                            //   _buildMessageNavigationButtons(),
+                            // 滚动到底部按钮
+                            if (_userScrolling) _buildScrollToBottomButton(),
+                          ],
+                        ),
+                      ),
           ),
           if (_lastMessageStats != null) _buildStatsPanel(),
           _buildInputArea(),
@@ -1379,6 +1485,82 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                 ),
           ),
         ],
+      ),
+    );
+  }
+
+  // 加载中状态（进入对话时显示）
+  Widget _buildLoadingState() {
+    final appColors = context.appColors;
+
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: appColors.textTertiary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '加载中',
+            style: TextStyle(
+              fontSize: 13,
+              color: appColors.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 加载更多指示器（列表顶部）
+  Widget _buildLoadMoreIndicator() {
+    final appColors = context.appColors;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: EdgeInsets.symmetric(vertical: _isLoadingMore ? 20 : 8),
+      child: Center(
+        child: AnimatedOpacity(
+          opacity: _isLoadingMore ? 1.0 : 0.4,
+          duration: const Duration(milliseconds: 200),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_isLoadingMore)
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: primaryColor.withOpacity(0.7),
+                  ),
+                )
+              else
+                Icon(
+                  Icons.keyboard_arrow_up,
+                  size: 20,
+                  color: appColors.textTertiary,
+                ),
+              if (_isLoadingMore) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '加载中...',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: appColors.textSecondary,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
