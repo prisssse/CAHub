@@ -68,6 +68,25 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   // 消息导航相关
   int _currentUserMessageIndex = -1; // 当前定位到的用户消息索引（从下往上数）
 
+  // 斜杠命令相关
+  bool _showCommandSuggestions = false; // 是否显示命令建议
+  String _commandQuery = ''; // 当前的命令查询
+  final LayerLink _layerLink = LayerLink(); // 用于定位建议框
+  OverlayEntry? _commandOverlay; // 命令建议的 overlay
+
+  // 临时写死的命令列表（后续会从接口获取）
+  final List<Map<String, String>> _availableCommands = [
+    {'name': '/compact', 'description': '简短对话,可选重点说明'},
+    {'name': '/context', 'description': '将当前上下文使用情况可视化为彩色网格'},
+    {'name': '/cost', 'description': '显示代币使用统计信息'},
+    {'name': '/init', 'description': '使用 CLAUDE.md 指南初始化项目'},
+    {'name': '/pr-comments', 'description': '查看拉取请求评论'},
+    {'name': '/release-notes', 'description': '生成版本发布说明'},
+    {'name': '/todos', 'description': '列出当前待办事项'},
+    {'name': '/review', 'description': '请求代码审查'},
+    {'name': '/security-review', 'description': '进行安全审查'},
+  ];
+
   // 获取最终的 hideToolCalls 设置（优先使用全局设置）
   bool get _effectiveHideToolCalls {
     final appSettingsService = AppSettingsService();
@@ -96,6 +115,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     _loadSavedSettings(); // 加载保存的设置
     // 监听用户手动滚动
     _scrollController.addListener(_onScroll);
+    // 监听输入框文本变化
+    _textController.addListener(_onTextChanged);
     _loadMessages();
     _loadCodexSettingsIfNeeded();
   }
@@ -349,6 +370,11 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   }
 
   Future<void> _handleSubmit(String text) async {
+    // 隐藏命令建议（如果正在显示）
+    if (_showCommandSuggestions) {
+      _hideCommandSuggestions();
+    }
+
     // 允许只发送图片（文本可以为空）
     if (text.trim().isEmpty && _selectedImages.isEmpty) return;
 
@@ -1423,61 +1449,64 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                     const SizedBox(width: 8),
                   ],
                   Expanded(
-                    child: Container(
-                      constraints: const BoxConstraints(maxHeight: 150),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: CallbackShortcuts(
-                        bindings: Platform.isAndroid || Platform.isIOS
-                            ? {} // 移动端不使用快捷键
-                            : {
-                                // 桌面端：纯 Enter 键发送消息（不带任何修饰键）
-                                const SingleActivator(
-                                  LogicalKeyboardKey.enter,
-                                  shift: false,
-                                  control: false,
-                                  alt: false,
-                                  meta: false,
-                                ): () {
-                                  if (!_isSending && _textController.text.trim().isNotEmpty) {
-                                    _handleSubmit(_textController.text);
-                                  }
+                    child: CompositedTransformTarget(
+                      link: _layerLink,
+                      child: Container(
+                        constraints: const BoxConstraints(maxHeight: 150),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: CallbackShortcuts(
+                          bindings: Platform.isAndroid || Platform.isIOS
+                              ? {} // 移动端不使用快捷键
+                              : {
+                                  // 桌面端：纯 Enter 键发送消息（不带任何修饰键）
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.enter,
+                                    shift: false,
+                                    control: false,
+                                    alt: false,
+                                    meta: false,
+                                  ): () {
+                                    if (!_isSending && _textController.text.trim().isNotEmpty) {
+                                      _handleSubmit(_textController.text);
+                                    }
+                                  },
                                 },
-                              },
-                        child: TextField(
-                          controller: _textController,
-                          focusNode: _inputFocusNode,
-                          decoration: InputDecoration(
-                            hintText: _sessionProcessing && widget.repository is! ApiCodexRepository
-                                ? '补充信息或继续提问...'
-                                : '输入消息...',
-                            hintStyle: TextStyle(
-                              color: Colors.grey.shade400,
+                          child: TextField(
+                            controller: _textController,
+                            focusNode: _inputFocusNode,
+                            decoration: InputDecoration(
+                              hintText: _sessionProcessing && widget.repository is! ApiCodexRepository
+                                  ? '补充信息或继续提问...'
+                                  : '输入消息...',
+                              hintStyle: TextStyle(
+                                color: Colors.grey.shade400,
+                              ),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
                             ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                          ),
-                          maxLines: null,
-                          minLines: 1,
-                          keyboardType: TextInputType.multiline,
-                          textInputAction: Platform.isAndroid || Platform.isIOS
-                              ? TextInputAction.send
-                              : TextInputAction.newline, // 桌面端支持 Shift+Enter 换行
-                          enabled: true,
-                          enableInteractiveSelection: true,
-                          onSubmitted: Platform.isAndroid || Platform.isIOS
-                              ? (text) {
-                                  // 移动端：键盘发送按钮
-                                  if (!_isSending && text.trim().isNotEmpty) {
-                                    _handleSubmit(text);
+                            maxLines: null,
+                            minLines: 1,
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: Platform.isAndroid || Platform.isIOS
+                                ? TextInputAction.send
+                                : TextInputAction.newline, // 桌面端支持 Shift+Enter 换行
+                            enabled: true,
+                            enableInteractiveSelection: true,
+                            onSubmitted: Platform.isAndroid || Platform.isIOS
+                                ? (text) {
+                                    // 移动端：键盘发送按钮
+                                    if (!_isSending && text.trim().isNotEmpty) {
+                                      _handleSubmit(text);
+                                    }
                                   }
-                                }
-                              : null, // 桌面端由 CallbackShortcuts 处理
+                                : null, // 桌面端由 CallbackShortcuts 处理
+                          ),
                         ),
                       ),
                     ),
@@ -1535,8 +1564,201 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     );
   }
 
+  // 监听文本变化，检测斜杠命令
+  void _onTextChanged() {
+    // 仅在 Claude Code 模式下启用斜杠命令
+    if (widget.repository is ApiCodexRepository) {
+      if (_showCommandSuggestions) {
+        _hideCommandSuggestions();
+      }
+      return;
+    }
+
+    final text = _textController.text;
+    final cursorPosition = _textController.selection.baseOffset;
+
+    // 检查光标前的文本
+    if (cursorPosition > 0) {
+      final textBeforeCursor = text.substring(0, cursorPosition);
+
+      // 查找最后一个斜杠的位置
+      final lastSlashIndex = textBeforeCursor.lastIndexOf('/');
+
+      if (lastSlashIndex >= 0) {
+        // 检查斜杠是否在行首或前面是空格
+        final isValidSlash = lastSlashIndex == 0 ||
+            textBeforeCursor[lastSlashIndex - 1] == ' ' ||
+            textBeforeCursor[lastSlashIndex - 1] == '\n';
+
+        if (isValidSlash) {
+          // 提取斜杠后的查询文本
+          final query = textBeforeCursor.substring(lastSlashIndex);
+
+          // 检查查询是否被空格或换行符打断
+          if (!query.contains(' ') && !query.contains('\n')) {
+            _commandQuery = query.toLowerCase();
+            _showCommandSuggestionsOverlay();
+            return;
+          }
+        }
+      }
+    }
+
+    // 如果不符合条件，隐藏建议
+    if (_showCommandSuggestions) {
+      _hideCommandSuggestions();
+    }
+  }
+
+  // 显示命令建议
+  void _showCommandSuggestionsOverlay() {
+    if (!mounted) return;
+
+    // 过滤匹配的命令
+    final filteredCommands = _availableCommands.where((cmd) {
+      return cmd['name']!.toLowerCase().startsWith(_commandQuery);
+    }).toList();
+
+    if (filteredCommands.isEmpty) {
+      _hideCommandSuggestions();
+      return;
+    }
+
+    // 如果已经有 overlay，先移除
+    _commandOverlay?.remove();
+
+    _commandOverlay = OverlayEntry(
+      builder: (context) => _buildCommandSuggestionsOverlay(filteredCommands),
+    );
+
+    Overlay.of(context).insert(_commandOverlay!);
+    setState(() {
+      _showCommandSuggestions = true;
+    });
+  }
+
+  // 隐藏命令建议
+  void _hideCommandSuggestions() {
+    _commandOverlay?.remove();
+    _commandOverlay = null;
+    _showCommandSuggestions = false;
+    _commandQuery = '';
+  }
+
+  // 选择命令
+  void _selectCommand(String commandName) {
+    final text = _textController.text;
+    final cursorPosition = _textController.selection.baseOffset;
+
+    if (cursorPosition > 0) {
+      final textBeforeCursor = text.substring(0, cursorPosition);
+      final lastSlashIndex = textBeforeCursor.lastIndexOf('/');
+
+      if (lastSlashIndex >= 0) {
+        // 替换斜杠到光标之间的文本为选中的命令
+        final newText = text.substring(0, lastSlashIndex) +
+                       commandName + ' ' +
+                       text.substring(cursorPosition);
+
+        final newCursorPosition = lastSlashIndex + commandName.length + 1;
+
+        _textController.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection.collapsed(offset: newCursorPosition),
+        );
+      }
+    }
+
+    _hideCommandSuggestions();
+    _inputFocusNode.requestFocus();
+  }
+
+  // 构建命令建议浮层
+  Widget _buildCommandSuggestionsOverlay(List<Map<String, String>> commands) {
+    final appColors = context.appColors;
+    final cardColor = Theme.of(context).cardColor;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+
+    return Positioned(
+      width: MediaQuery.of(context).size.width - 32,
+      child: CompositedTransformFollower(
+        link: _layerLink,
+        showWhenUnlinked: false,
+        offset: const Offset(0, -8), // 在输入框上方，增加间距避免遮挡
+        targetAnchor: Alignment.topLeft,
+        followerAnchor: Alignment.bottomLeft,
+        child: Material(
+          elevation: 3,
+          shadowColor: Colors.black.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(8),
+          color: Colors.transparent,
+          child: Container(
+            constraints: const BoxConstraints(maxHeight: 280),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: cardColor,
+              border: Border.all(
+                color: primaryColor.withOpacity(0.15),
+                width: 1,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                itemCount: commands.length,
+                itemBuilder: (context, index) {
+                  final cmd = commands[index];
+                  return MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: InkWell(
+                      onTap: () => _selectCommand(cmd['name']!),
+                      hoverColor: primaryColor.withOpacity(0.08),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              cmd['name']!,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: primaryColor,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              cmd['description']!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: appColors.textSecondary,
+                                height: 1.3,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _hideCommandSuggestions();
+    _textController.removeListener(_onTextChanged);
     _textController.dispose();
     _scrollController.dispose();
     _inputFocusNode.dispose();

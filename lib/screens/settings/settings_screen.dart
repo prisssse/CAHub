@@ -246,6 +246,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       Divider(height: 1, color: dividerColor),
                       ListTile(
+                        title: Text('模型选择', style: TextStyle(fontSize: 16, color: textPrimary)),
+                        subtitle: Text(_getModelLabel(_claudeSettings?.advancedOptions?['model']), style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
+                        trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
+                        onTap: () => _showModelPicker(),
+                      ),
+                      Divider(height: 1, color: dividerColor),
+                      ListTile(
                         title: Text('高级设置', style: TextStyle(fontSize: 16, color: textPrimary)),
                         subtitle: Text(_claudeSettings?.advancedOptions != null && _claudeSettings!.advancedOptions!.isNotEmpty ? '已配置 ${_claudeSettings!.advancedOptions!.length} 个参数' : '未配置', style: TextStyle(fontSize: 13, color: appColors.textSecondary)),
                         trailing: Icon(Icons.arrow_forward_ios, size: 16, color: appColors.textSecondary),
@@ -422,6 +429,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 'medium': return '中';
       case 'high': return '高';
       default: return effort;
+    }
+  }
+
+  String _getModelLabel(String? model) {
+    if (model == null || model.isEmpty) return 'Default';
+    switch (model.toLowerCase()) {
+      case 'opus': return 'Opus';
+      case 'haiku': return 'Haiku';
+      default: return model;
     }
   }
 
@@ -868,6 +884,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             }).toList(),
           ),
+        );
+      },
+    );
+  }
+
+  void _showModelPicker() {
+    final models = [
+      {'value': null, 'label': 'Default'},
+      {'value': 'opus', 'label': 'Opus'},
+      {'value': 'haiku', 'label': 'Haiku'},
+    ];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        final appColors = context.appColors;
+        final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+        final primaryColor = Theme.of(context).colorScheme.primary;
+        final cardColor = Theme.of(context).cardColor;
+
+        final currentModel = _claudeSettings?.advancedOptions?['model'];
+
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: Text('选择模型', style: TextStyle(color: textPrimary)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: models.map((model) {
+              final isSelected = (currentModel == null && model['value'] == null) ||
+                                currentModel == model['value'];
+              return ListTile(
+                title: Text(
+                  model['label'] as String,
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                trailing: isSelected ? Icon(Icons.check, color: primaryColor) : null,
+                onTap: () async {
+                  // Update advanced options with model selection
+                  final newAdvancedOptions = Map<String, dynamic>.from(
+                    _claudeSettings?.advancedOptions ?? {}
+                  );
+
+                  if (model['value'] == null) {
+                    // Default - remove model from advanced options
+                    newAdvancedOptions.remove('model');
+                  } else {
+                    // Set model
+                    newAdvancedOptions['model'] = model['value'];
+                  }
+
+                  await _updateClaudeSetting(
+                    'advanced_options',
+                    newAdvancedOptions.isEmpty ? null : newAdvancedOptions,
+                  );
+                  if (mounted) Navigator.pop(context);
+                },
+              );
+            }).toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('关闭', style: TextStyle(color: appColors.textSecondary)),
+            ),
+          ],
         );
       },
     );

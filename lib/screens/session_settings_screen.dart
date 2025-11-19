@@ -362,33 +362,131 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
           _buildInfoCard(
             cardColor: cardColor,
             dividerColor: dividerColor,
-            child: ListTile(
-              title: Text(
-                '高级参数',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: textPrimary,
+            child: Column(
+              children: [
+                ListTile(
+                  title: Text(
+                    '模型选择',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: textPrimary,
+                    ),
+                  ),
+                  subtitle: Text(
+                    _getModelLabel(_advancedOptions?['model']),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: textSecondary,
+                    ),
+                  ),
+                  trailing: Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: textTertiary,
+                  ),
+                  onTap: () => _showModelPicker(textPrimary, textSecondary, primaryColor, cardColor),
                 ),
-              ),
-              subtitle: Text(
-                _advancedOptions == null || _advancedOptions!.isEmpty
-                    ? '使用全局设置'
-                    : '已配置 ${_advancedOptions!.length} 个参数',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: textSecondary,
+                Divider(height: 1, color: dividerColor),
+                ListTile(
+                  title: Text(
+                    '高级参数',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: textPrimary,
+                    ),
+                  ),
+                  subtitle: Text(
+                    _advancedOptions == null || _advancedOptions!.isEmpty
+                        ? '使用全局设置'
+                        : '已配置 ${_advancedOptions!.length} 个参数',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: textSecondary,
+                    ),
+                  ),
+                  trailing: Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: textTertiary,
+                  ),
+                  onTap: () => _showAdvancedOptionsDialog(),
                 ),
-              ),
-              trailing: Icon(
-                Icons.arrow_forward_ios,
-                size: 16,
-                color: textTertiary,
-              ),
-              onTap: () => _showAdvancedOptionsDialog(),
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  String _getModelLabel(String? model) {
+    if (model == null || model.isEmpty) return 'Default';
+    switch (model.toLowerCase()) {
+      case 'opus': return 'Opus';
+      case 'haiku': return 'Haiku';
+      default: return model;
+    }
+  }
+
+  void _showModelPicker(Color textPrimary, Color textSecondary, Color primaryColor, Color cardColor) {
+    final models = [
+      {'value': null, 'label': 'Default'},
+      {'value': 'opus', 'label': 'Opus'},
+      {'value': 'haiku', 'label': 'Haiku'},
+    ];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        final currentModel = _advancedOptions?['model'];
+
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: Text('选择模型', style: TextStyle(color: textPrimary)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: models.map((model) {
+              final isSelected = (currentModel == null && model['value'] == null) ||
+                                currentModel == model['value'];
+              return ListTile(
+                title: Text(
+                  model['label'] as String,
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                trailing: isSelected ? Icon(Icons.check, color: primaryColor) : null,
+                onTap: () {
+                  setState(() {
+                    // Update advanced options with model selection
+                    final newAdvancedOptions = Map<String, dynamic>.from(
+                      _advancedOptions ?? {}
+                    );
+
+                    if (model['value'] == null) {
+                      // Default - remove model from advanced options
+                      newAdvancedOptions.remove('model');
+                    } else {
+                      // Set model
+                      newAdvancedOptions['model'] = model['value'];
+                    }
+
+                    _advancedOptions = newAdvancedOptions.isEmpty ? null : newAdvancedOptions;
+                  });
+                  Navigator.pop(context);
+                },
+              );
+            }).toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('关闭', style: TextStyle(color: textSecondary)),
+            ),
+          ],
+        );
+      },
     );
   }
 
