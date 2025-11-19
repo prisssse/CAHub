@@ -278,6 +278,31 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     }
   }
 
+  // 刷新当前对话
+  Future<void> _refreshCurrentSession() async {
+    if (_isLoading || _isSending) {
+      print('DEBUG ChatScreen: Already loading or sending, skipping refresh');
+      return;
+    }
+
+    print('DEBUG ChatScreen: Refreshing session ${widget.session.id}');
+
+    // 重新加载消息
+    await _loadMessages();
+
+    // 显示刷新成功提示
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('对话已刷新'),
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
+        ),
+      );
+    }
+  }
+
   // Pick images from gallery or camera
   Future<void> _pickImages() async {
     try {
@@ -967,6 +992,11 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _refreshCurrentSession,
+            tooltip: '刷新对话',
+          ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: _openSettings,

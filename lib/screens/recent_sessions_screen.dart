@@ -38,7 +38,11 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
   List<Session> _recentSessions = [];
   bool _isLoading = false;
   DateTime? _lastRefreshTime; // 上次刷新时间
-  static const Duration _autoRefreshInterval = Duration(minutes: 1); // 自动刷新间隔
+  DateTime? _lastLoadRequestTime; // 上次加载请求时间（用于防抖）
+  static const Duration _autoRefreshInterval = Duration(minutes: 3); // 自动刷新间隔改为3分钟
+  static const Duration _debounceInterval = Duration(seconds: 3); // 防抖间隔3秒
+  static const int _pageSize = 50; // 每页加载50条
+  bool _hasMore = true; // 是否还有更多数据
 
   @override
   bool get wantKeepAlive => true; // 保持状态
@@ -84,9 +88,23 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
     }
   }
 
-  Future<void> _loadRecentSessions() async {
+  // 防抖加载会话
+  Future<void> _loadRecentSessions({bool forceRefresh = false}) async {
     if (!mounted) return;
+
+    // 防抖检查：如果不是强制刷新，检查距离上次请求是否小于防抖间隔
+    final now = DateTime.now();
+    if (!forceRefresh && _lastLoadRequestTime != null) {
+      final timeSinceLastRequest = now.difference(_lastLoadRequestTime!);
+      if (timeSinceLastRequest < _debounceInterval) {
+        print('DEBUG: Debouncing refresh request (${timeSinceLastRequest.inMilliseconds}ms since last request)');
+        return;
+      }
+    }
+
+    _lastLoadRequestTime = now;
     setState(() => _isLoading = true);
+
     try {
       // 获取所有项目
       final projects = await _currentRepository.getProjects();
@@ -103,13 +121,116 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
 
       if (!mounted) return;
       setState(() {
-        _recentSessions = allSessions;
+        // 只显示前 _pageSize 条
+        _recentSessions = allSessions.take(_pageSize).toList();
+        _hasMore = allSessions.length > _pageSize;
         _isLoading = false;
         _lastRefreshTime = DateTime.now(); // 记录刷新时间
       });
+
+      print('DEBUG: Loaded ${_recentSessions.length} sessions (total: ${allSessions.length}, hasMore: $_hasMore)');
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
+      print('ERROR: Failed to load sessions: $e');
+    }
+  }
+
+  // 加载更多会话
+  Future<void> _loadMoreSessions() async {
+    if (!mounted || _isLoading || !_hasMore) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      // 获取所有项目
+      final projects = await _currentRepository.getProjects();
+
+      // 获取所有项目的会话
+      final allSessions = <Session>[];
+      for (var project in projects) {
+        final sessions = await _currentRepository.getProjectSessions(project.id);
+        allSessions.addAll(sessions);
+      }
+
+      // 按 updatedAt 降序排序
+      allSessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+      if (!mounted) return;
+
+      final currentLength = _recentSessions.length;
+      final nextBatch = allSessions.skip(currentLength).take(_pageSize).toList();
+
+      setState(() {
+        _recentSessions.addAll(nextBatch);
+        _hasMore = _recentSessions.length < allSessions.length;
+        _isLoading = false;
+      });
+
+      print('DEBUG: Loaded ${nextBatch.length} more sessions (total now: ${_recentSessions.length}, hasMore: $_hasMore)');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      print('ERROR: Failed to load more sessions: $e');
+    }
+  }
+
+  // 局部更新单个会话（避免重新加载整个列表）
+  Future<void> updateSession(String sessionId) async {
+    if (!mounted) return;
+
+    print('DEBUG: Updating single session $sessionId');
+
+    try {
+      // 获取所有项目
+      final projects = await _currentRepository.getProjects();
+
+      // 查找包含此会话的项目
+      Session? updatedSession;
+      for (var project in projects) {
+        final sessions = await _currentRepository.getProjectSessions(project.id);
+        final found = sessions.firstWhere(
+          (s) => s.id == sessionId,
+          orElse: () => Session(
+            id: '',
+            projectId: '',
+            title: '',
+            name: '',
+            cwd: '',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+        );
+        if (found.id == sessionId) {
+          updatedSession = found;
+          break;
+        }
+      }
+
+      if (updatedSession == null || !mounted) return;
+
+      // 在列表中找到并更新这个会话
+      final index = _recentSessions.indexWhere((s) => s.id == sessionId);
+      if (index != -1) {
+        setState(() {
+          _recentSessions[index] = updatedSession!;
+          // 重新排序
+          _recentSessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        });
+        print('DEBUG: Updated session $sessionId at index $index');
+      } else {
+        // 如果列表中没有这个会话，添加到开头
+        setState(() {
+          _recentSessions.insert(0, updatedSession!);
+          // 如果超过分页大小，移除最后一个
+          if (_recentSessions.length > _pageSize) {
+            _recentSessions.removeLast();
+          }
+        });
+        print('DEBUG: Added new session $sessionId to list');
+      }
+    } catch (e) {
+      print('ERROR: Failed to update session $sessionId: $e');
     }
   }
 
@@ -173,16 +294,20 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
       appBar: AppBar(
         title: _buildBackendSelector(primaryColor, cardColor, backgroundColor),
       ),
-      body: _isLoading
+      body: _isLoading && _recentSessions.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadRecentSessions,
+              onRefresh: () => _loadRecentSessions(forceRefresh: true),
               child: _recentSessions.isEmpty
                   ? _buildEmptyState()
                   : ListView.builder(
                       padding: const EdgeInsets.all(16),
-                      itemCount: _recentSessions.length,
+                      itemCount: _recentSessions.length + (_hasMore ? 1 : 0),
                       itemBuilder: (context, index) {
+                        // 显示"加载更多"按钮
+                        if (index == _recentSessions.length) {
+                          return _buildLoadMoreButton();
+                        }
                         final session = _recentSessions[index];
                         return _buildSessionCard(session);
                       },
@@ -212,6 +337,31 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreButton() {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final appColors = context.appColors;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Center(
+        child: _isLoading
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : TextButton.icon(
+                onPressed: _loadMoreSessions,
+                icon: Icon(Icons.expand_more, color: primaryColor),
+                label: Text(
+                  '加载更多',
+                  style: TextStyle(color: primaryColor, fontSize: 14),
+                ),
+              ),
       ),
     );
   }
