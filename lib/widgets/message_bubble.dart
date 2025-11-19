@@ -164,11 +164,11 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
     final codeBlockPattern = RegExp(r'```(\w*)[\r\n]+([\s\S]*?)[\r\n]+```');
     final matches = codeBlockPattern.allMatches(text).toList();
 
-    // 如果没有代码块，使用 SelectableText 直接渲染
+    // 如果没有代码块，使用 Text 直接渲染（外层的 SelectionArea 会处理选择）
     if (matches.isEmpty) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),
-        child: SelectableText(
+        child: Text(
           text,
           style: TextStyle(
             color: textPrimary,
@@ -195,7 +195,7 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
           widgets.add(
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: SelectableText(
+              child: Text(
                 beforeText,
                 style: TextStyle(
                   color: textPrimary,
@@ -225,7 +225,7 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
         widgets.add(
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: SelectableText(
+            child: Text(
               afterText,
               style: TextStyle(
                 color: textPrimary,
@@ -329,7 +329,7 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
               color: appColors.codeBackground,
               borderRadius: BorderRadius.circular(4),
             ),
-            child: SelectableText.rich(
+            child: Text.rich(
               TextSpan(
                 children: _buildHighlightedCode(code, language, isDark, textPrimary),
               ),
@@ -609,7 +609,7 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
                     color: appColors.codeBackground,
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: SelectableText(
+                  child: Text(
                     JsonEncoder.withIndent('  ').convert(input),
                     style: TextStyle(
                       color: textPrimary,
@@ -726,7 +726,7 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
             ],
           ),
           const SizedBox(height: 4),
-          SelectableText(
+          Text(
             displayContent,
             style: TextStyle(
               color: appColors.textSecondary,
