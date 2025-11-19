@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import '../models/session_settings.dart';
+import 'settings/settings_screen.dart' show AdvancedOptionsEditor;
 
 class SessionSettingsScreen extends StatefulWidget {
   final SessionSettings settings;
@@ -23,6 +24,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
   late SystemPromptMode _systemPromptMode;
   late String _systemPromptPreset;
   late bool _hideToolCalls;
+  Map<String, dynamic>? _advancedOptions; // 对话级高级设置
 
   final List<String> _availablePresets = [
     'default',
@@ -43,6 +45,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
     _includeProjectSettings =
         widget.settings.settingSources.contains('project');
     _hideToolCalls = widget.settings.hideToolCalls;
+    _advancedOptions = widget.settings.advancedOptions;
   }
 
   @override
@@ -68,6 +71,7 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
           : null,
       settingSources: settingSources,
       hideToolCalls: _hideToolCalls,
+      advancedOptions: _advancedOptions,
     );
 
     widget.onSave(updated);
@@ -353,7 +357,53 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 24),
+          _buildSectionTitle('高级设置（对话级）', textSecondary),
+          _buildInfoCard(
+            cardColor: cardColor,
+            dividerColor: dividerColor,
+            child: ListTile(
+              title: Text(
+                '高级参数',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: textPrimary,
+                ),
+              ),
+              subtitle: Text(
+                _advancedOptions == null || _advancedOptions!.isEmpty
+                    ? '使用全局设置'
+                    : '已配置 ${_advancedOptions!.length} 个参数',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: textSecondary,
+                ),
+              ),
+              trailing: Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: textTertiary,
+              ),
+              onTap: () => _showAdvancedOptionsDialog(),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  void _showAdvancedOptionsDialog() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => AdvancedOptionsEditor(
+          initialOptions: _advancedOptions ?? {},
+          onSave: (options) {
+            setState(() {
+              _advancedOptions = options.isEmpty ? null : options;
+            });
+            Navigator.pop(context);
+          },
+        ),
       ),
     );
   }

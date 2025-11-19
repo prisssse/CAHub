@@ -876,7 +876,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _showAdvancedOptionsDialog() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => _AdvancedOptionsEditor(
+        builder: (context) => AdvancedOptionsEditor(
           initialOptions: _claudeSettings?.advancedOptions ?? {},
           onSave: (options) async {
             await _updateClaudeSetting('advanced_options', options.isEmpty ? null : options);
@@ -1010,20 +1010,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 // 高级设置编辑器
-class _AdvancedOptionsEditor extends StatefulWidget {
+class AdvancedOptionsEditor extends StatefulWidget {
   final Map<String, dynamic> initialOptions;
   final Function(Map<String, dynamic>) onSave;
 
-  const _AdvancedOptionsEditor({
+  const AdvancedOptionsEditor({
     required this.initialOptions,
     required this.onSave,
   });
 
   @override
-  State<_AdvancedOptionsEditor> createState() => _AdvancedOptionsEditorState();
+  State<AdvancedOptionsEditor> createState() => _AdvancedOptionsEditorState();
 }
 
-class _AdvancedOptionsEditorState extends State<_AdvancedOptionsEditor> {
+class _AdvancedOptionsEditorState extends State<AdvancedOptionsEditor> {
   late List<_OptionItem> _options;
 
   // 常用配置项的定义

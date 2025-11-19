@@ -29,6 +29,7 @@ class SessionSettings {
   final SystemPromptMode systemPromptMode;
   final List<String> settingSources; // user is required, project is optional
   final bool hideToolCalls; // 是否隐藏工具调用信息
+  final Map<String, dynamic>? advancedOptions; // 高级参数（对话级）
 
   SessionSettings({
     required this.sessionId,
@@ -39,6 +40,7 @@ class SessionSettings {
     this.systemPromptMode = SystemPromptMode.custom,
     List<String>? settingSources,
     this.hideToolCalls = false,
+    this.advancedOptions,
   }) : settingSources = settingSources ?? ['user'];
 
   SessionSettings copyWith({
@@ -50,6 +52,7 @@ class SessionSettings {
     SystemPromptMode? systemPromptMode,
     List<String>? settingSources,
     bool? hideToolCalls,
+    Map<String, dynamic>? advancedOptions,
   }) {
     return SessionSettings(
       sessionId: sessionId ?? this.sessionId,
@@ -60,6 +63,7 @@ class SessionSettings {
       systemPromptMode: systemPromptMode ?? this.systemPromptMode,
       settingSources: settingSources ?? this.settingSources,
       hideToolCalls: hideToolCalls ?? this.hideToolCalls,
+      advancedOptions: advancedOptions ?? this.advancedOptions,
     );
   }
 
@@ -83,6 +87,11 @@ class SessionSettings {
       if (prompt != null && prompt.isNotEmpty) {
         json['system_prompt'] = prompt;
       }
+    }
+
+    // Add advanced_options if present
+    if (advancedOptions != null && advancedOptions!.isNotEmpty) {
+      json['advanced_options'] = advancedOptions!;
     }
 
     return json;
@@ -117,6 +126,7 @@ class SessionSettings {
           ? List<String>.from(json['setting_sources'])
           : ['user'],
       hideToolCalls: json['hide_tool_calls'] ?? false,
+      advancedOptions: json['advanced_options'] as Map<String, dynamic>?,
     );
   }
 }

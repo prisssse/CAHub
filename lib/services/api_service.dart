@@ -85,6 +85,10 @@ class ApiService {
         body['system_prompt'] = settings.systemPrompt;
       }
       body['setting_sources'] = settings.settingSources;
+      // Add advanced_options if present (对话级高级设置)
+      if (settings.advancedOptions != null && settings.advancedOptions!.isNotEmpty) {
+        body['advanced_options'] = settings.advancedOptions;
+      }
     }
 
     final request = http.Request('POST', Uri.parse('$baseUrl/chat'));
