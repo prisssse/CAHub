@@ -197,11 +197,18 @@ class _TabManagerScreenState extends State<TabManagerScreen>
 
     // 如果 chatWidget 是 ChatScreen，重新创建并添加回调和通知器
     Widget wrappedWidget = chatWidget;
+    final tabId = 'chat_$sessionId'; // 使用 tab ID 来查找正确的标签页
     if (chatWidget is ChatScreen) {
       wrappedWidget = ChatScreen(
         session: chatWidget.session,
         repository: chatWidget.repository,
-        onMessageComplete: () => _handleMessageComplete(targetIndex),
+        onMessageComplete: () {
+          // 通过 tab ID 查找当前索引，避免索引失效问题
+          final currentTabIndex = _tabs.indexWhere((tab) => tab.id == tabId);
+          if (currentTabIndex != -1) {
+            _handleMessageComplete(currentTabIndex);
+          }
+        },
         hasNewReplyNotifier: newTab.hasNewReplyNotifier,
         onBack: () => _handleBackToHome(targetIndex),
       );

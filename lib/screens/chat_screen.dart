@@ -643,16 +643,29 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         if (event.partialMessage != null) {
           final partial = event.partialMessage!;
           final messageId = partial.id;
-          print('UI: ⟳ PARTIAL MSG, ID: $messageId, map contains: ${assistantMessagesByIdIndex.containsKey(messageId)}, total msgs: ${_messages.length}');
 
-          if (assistantMessagesByIdIndex.containsKey(messageId)) {
+          // 先检查局部map，再检查全局_messages列表（处理持续对话场景）
+          int? existingIndex = assistantMessagesByIdIndex[messageId];
+          if (existingIndex == null) {
+            // 在_messages中查找是否已存在该消息（可能由其他并行的_handleSubmit添加）
+            for (int i = _messages.length - 1; i >= 0; i--) {
+              if (_messages[i].id == messageId) {
+                existingIndex = i;
+                assistantMessagesByIdIndex[messageId] = i; // 更新局部map
+                break;
+              }
+            }
+          }
+
+          print('UI: ⟳ PARTIAL MSG, ID: $messageId, existingIndex: $existingIndex, total msgs: ${_messages.length}');
+
+          if (existingIndex != null) {
             // Update existing message
-            final index = assistantMessagesByIdIndex[messageId]!;
-            print('UI:   → UPDATE at index $index');
-            if (index >= 0 &&
-                index < _messages.length &&
-                _messages[index].role == MessageRole.assistant) {
-              _messages[index] = partial; // 直接更新，不触发setState
+            print('UI:   → UPDATE at index $existingIndex');
+            if (existingIndex >= 0 &&
+                existingIndex < _messages.length &&
+                _messages[existingIndex].role == MessageRole.assistant) {
+              _messages[existingIndex] = partial; // 直接更新，不触发setState
               _throttledUpdate(); // 节流更新UI
             }
           } else {
@@ -668,18 +681,31 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         if (event.finalMessage != null) {
           final final_ = event.finalMessage!;
           final messageId = final_.id;
-          print('UI: ✓ FINAL MSG, ID: $messageId, map contains: ${assistantMessagesByIdIndex.containsKey(messageId)}, total msgs: ${_messages.length}');
 
-          if (assistantMessagesByIdIndex.containsKey(messageId)) {
+          // 先检查局部map，再检查全局_messages列表（处理持续对话场景）
+          int? existingIndex = assistantMessagesByIdIndex[messageId];
+          if (existingIndex == null) {
+            // 在_messages中查找是否已存在该消息（可能由其他并行的_handleSubmit添加）
+            for (int i = _messages.length - 1; i >= 0; i--) {
+              if (_messages[i].id == messageId) {
+                existingIndex = i;
+                assistantMessagesByIdIndex[messageId] = i; // 更新局部map
+                break;
+              }
+            }
+          }
+
+          print('UI: ✓ FINAL MSG, ID: $messageId, existingIndex: $existingIndex, total msgs: ${_messages.length}');
+
+          if (existingIndex != null) {
             // Replace with final message
-            final index = assistantMessagesByIdIndex[messageId]!;
-            print('UI:   → REPLACE at index $index');
-            if (index >= 0 &&
-                index < _messages.length &&
-                _messages[index].role == MessageRole.assistant) {
+            print('UI:   → REPLACE at index $existingIndex');
+            if (existingIndex >= 0 &&
+                existingIndex < _messages.length &&
+                _messages[existingIndex].role == MessageRole.assistant) {
               if (mounted) {
                 setState(() {
-                  _messages[index] = final_;
+                  _messages[existingIndex!] = final_;
                 });
               }
             }
