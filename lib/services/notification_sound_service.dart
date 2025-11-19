@@ -1,6 +1,7 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:typed_data';
 import 'dart:math';
+import 'package:flutter/scheduler.dart';
 
 /// 通知音效服务
 class NotificationSoundService {
@@ -21,16 +22,23 @@ class NotificationSoundService {
   /// 播放通知提示音
   Future<void> playNotificationSound() async {
     try {
-      // 生成一个简单的提示音（440Hz，持续200ms）
-      final bytes = _generateBeepSound(
-        frequency: 800, // Hz
-        duration: 0.15, // seconds
-        sampleRate: 44100,
-      );
+      // 确保在主线程上执行音频播放
+      SchedulerBinding.instance.addPostFrameCallback((_) async {
+        try {
+          // 生成一个简单的提示音（440Hz，持续200ms）
+          final bytes = _generateBeepSound(
+            frequency: 800, // Hz
+            duration: 0.15, // seconds
+            sampleRate: 44100,
+          );
 
-      await _player.stop();
-      await _player.setVolume(_volume);
-      await _player.play(BytesSource(bytes));
+          await _player.stop();
+          await _player.setVolume(_volume);
+          await _player.play(BytesSource(bytes));
+        } catch (e) {
+          print('播放提示音失败: $e');
+        }
+      });
     } catch (e) {
       print('播放提示音失败: $e');
     }
