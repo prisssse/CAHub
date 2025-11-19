@@ -38,6 +38,10 @@ class _MyAppState extends State<MyApp> {
   final _settingsService = AppSettingsService();
   bool _isInitializing = true;
 
+  // API services - 保持实例以便动态更新
+  ApiService? _apiService;
+  CodexApiService? _codexApiService;
+
   @override
   void initState() {
     super.initState();
@@ -124,21 +128,32 @@ class _MyAppState extends State<MyApp> {
 
   Widget _buildMainApp() {
     final apiUrl = _configService?.apiBaseUrl ?? AppConfig.apiBaseUrl;
-    print('DEBUG: Creating ApiService with URL: $apiUrl');
 
-    // Create Claude Code services
-    final apiService = ApiService(
-      baseUrl: apiUrl,
-      authService: _authService,
-    );
-    final claudeRepository = ApiProjectRepository(apiService);
+    // 如果还没有创建 ApiService 实例，或者 URL 发生变化，则创建/更新
+    if (_apiService == null) {
+      print('DEBUG: Creating ApiService with URL: $apiUrl');
+      _apiService = ApiService(
+        baseUrl: apiUrl,
+        authService: _authService,
+      );
+    } else if (_apiService!.baseUrl != apiUrl) {
+      print('DEBUG: Updating ApiService URL from ${_apiService!.baseUrl} to $apiUrl');
+      _apiService!.updateBaseUrl(apiUrl);
+    }
 
-    // Create Codex services
-    final codexApiService = CodexApiService(
-      baseUrl: apiUrl,
-      authService: _authService,
-    );
-    final codexRepository = ApiCodexRepository(codexApiService);
+    if (_codexApiService == null) {
+      print('DEBUG: Creating CodexApiService with URL: $apiUrl');
+      _codexApiService = CodexApiService(
+        baseUrl: apiUrl,
+        authService: _authService,
+      );
+    } else if (_codexApiService!.baseUrl != apiUrl) {
+      print('DEBUG: Updating CodexApiService URL from ${_codexApiService!.baseUrl} to $apiUrl');
+      _codexApiService!.updateBaseUrl(apiUrl);
+    }
+
+    final claudeRepository = ApiProjectRepository(_apiService!);
+    final codexRepository = ApiCodexRepository(_codexApiService!);
 
     return TabManagerScreen(
       claudeRepository: claudeRepository,
@@ -146,7 +161,20 @@ class _MyAppState extends State<MyApp> {
       onLogout: () {
         setState(() {});
       },
+      onApiUrlChanged: _handleApiUrlChanged,
     );
+  }
+
+  /// 当 API 地址变化时调用此方法
+  Future<void> _handleApiUrlChanged(String newUrl) async {
+    print('DEBUG: API URL changed to: $newUrl');
+
+    // 更新 ApiService 实例
+    _apiService?.updateBaseUrl(newUrl);
+    _codexApiService?.updateBaseUrl(newUrl);
+
+    // 触发重建
+    setState(() {});
   }
 
   Widget _buildLoginPrompt() {

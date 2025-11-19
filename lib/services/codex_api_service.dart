@@ -4,13 +4,19 @@ import '../models/session_settings.dart';
 import 'auth_service.dart';
 
 class CodexApiService {
-  final String baseUrl;
+  String baseUrl;
   final AuthService? authService;
 
   CodexApiService({
     this.baseUrl = 'http://127.0.0.1:8207',
     this.authService,
   });
+
+  /// Update the base URL dynamically
+  void updateBaseUrl(String newUrl) {
+    baseUrl = newUrl;
+    print('DEBUG: CodexApiService baseUrl updated to: $newUrl');
+  }
 
   Map<String, String> _getHeaders() {
     final headers = <String, String>{

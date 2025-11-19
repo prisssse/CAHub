@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/app_settings_service.dart';
 import '../../services/notification_sound_service.dart';
+import '../../services/config_service.dart';
 import '../../models/user_settings.dart';
 import '../../models/codex_user_settings.dart';
 import '../../models/session_settings.dart';
@@ -553,9 +554,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Text('取消', style: TextStyle(color: appColors.textSecondary)),
             ),
             TextButton(
-              onPressed: () {
-                setState(() => _apiEndpoint = controller.text);
-                Navigator.pop(context);
+              onPressed: () async {
+                final newEndpoint = controller.text.trim();
+                if (newEndpoint.isEmpty) {
+                  Navigator.pop(context);
+                  return;
+                }
+
+                setState(() => _apiEndpoint = newEndpoint);
+
+                try {
+                  final configService = await ConfigService.getInstance();
+                  await configService.setApiBaseUrl(newEndpoint);
+
+                  // 动态更新所有 ApiService 的 baseUrl
+                  widget.claudeRepository.apiService.updateBaseUrl(newEndpoint);
+                  widget.codexRepository.apiService.updateBaseUrl(newEndpoint);
+                  print('DEBUG: API URL updated to $newEndpoint for all services');
+
+                  Navigator.pop(context);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('API 地址已保存并生效'),
+                        behavior: SnackBarBehavior.floating,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  Navigator.pop(context);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('保存失败: $e'),
+                        behavior: SnackBarBehavior.floating,
+                        backgroundColor: Colors.red,
+                        duration: Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                }
               },
               child: Text('保存', style: TextStyle(color: primaryColor)),
             ),
@@ -835,117 +874,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showAdvancedOptionsDialog() {
-    final appColors = context.appColors;
-    final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    final dividerColor = Theme.of(context).dividerColor;
-    final cardColor = Theme.of(context).cardColor;
-
-    // 将现有的高级选项转换为格式化的JSON字符串
-    String initialJson = '';
-    if (_claudeSettings?.advancedOptions != null && _claudeSettings!.advancedOptions!.isNotEmpty) {
-      try {
-        initialJson = const JsonEncoder.withIndent('  ').convert(_claudeSettings!.advancedOptions);
-      } catch (e) {
-        initialJson = '{}';
-      }
-    } else {
-      initialJson = '{\n  \n}';
-    }
-
-    final controller = TextEditingController(text: initialJson);
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: cardColor,
-          title: Text('高级设置', style: TextStyle(color: textPrimary, fontSize: 18)),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '可配置参数（JSON格式）：',
-                  style: TextStyle(color: appColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: appColors.codeBackground,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: dividerColor),
-                  ),
-                  child: Text(
-                    'additional_directories, agents, allowed_tools,\ncontinue, disallowed_tools, env, executable,\nexecutable_args, extra_args, fallback_model,\nfork_session, include_partial_messages,\nmax_thinking_tokens, max_turns, max_budget_usd,\nmcp_servers, model, path_to_claude_code_executable,\nallow_dangerously_skip_permissions,\npermission_prompt_tool_name, plugins,\nresume_session_at, setting_sources,\nstrict_mcp_config',
-                    style: TextStyle(
-                      color: appColors.textSecondary,
-                      fontSize: 11,
-                      fontFamily: 'monospace',
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: controller,
-                  style: TextStyle(color: textPrimary, fontFamily: 'monospace', fontSize: 13),
-                  maxLines: 15,
-                  decoration: InputDecoration(
-                    hintText: '{\n  "max_turns": 100,\n  "model": "claude-sonnet-4"\n}',
-                    hintStyle: TextStyle(color: appColors.textTertiary, fontFamily: 'monospace', fontSize: 12),
-                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: dividerColor), borderRadius: BorderRadius.circular(8)),
-                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: primaryColor), borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.all(12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('取消', style: TextStyle(color: appColors.textSecondary)),
-            ),
-            TextButton(
-              onPressed: () async {
-                try {
-                  final jsonText = controller.text.trim();
-                  Map<String, dynamic>? options;
-
-                  if (jsonText.isEmpty || jsonText == '{}' || jsonText == '{\n  \n}') {
-                    options = null;
-                  } else {
-                    options = jsonDecode(jsonText) as Map<String, dynamic>;
-                  }
-
-                  await _updateClaudeSetting('advanced_options', options);
-                  if (mounted) Navigator.pop(context);
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('JSON 格式错误: $e'),
-                        backgroundColor: Theme.of(context).colorScheme.error,
-                        behavior: SnackBarBehavior.floating,
-                        margin: EdgeInsets.only(
-                          top: 16,
-                          left: 16,
-                          right: 16,
-                          bottom: MediaQuery.of(context).size.height - 100,
-                        ),
-                      ),
-                    );
-                  }
-                }
-              },
-              child: Text('保存', style: TextStyle(color: primaryColor)),
-            ),
-          ],
-        );
-      },
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => _AdvancedOptionsEditor(
+          initialOptions: _claudeSettings?.advancedOptions ?? {},
+          onSave: (options) async {
+            await _updateClaudeSetting('advanced_options', options.isEmpty ? null : options);
+          },
+        ),
+      ),
     );
   }
 
@@ -1070,4 +1007,293 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+}
+
+// 高级设置编辑器
+class _AdvancedOptionsEditor extends StatefulWidget {
+  final Map<String, dynamic> initialOptions;
+  final Function(Map<String, dynamic>) onSave;
+
+  const _AdvancedOptionsEditor({
+    required this.initialOptions,
+    required this.onSave,
+  });
+
+  @override
+  State<_AdvancedOptionsEditor> createState() => _AdvancedOptionsEditorState();
+}
+
+class _AdvancedOptionsEditorState extends State<_AdvancedOptionsEditor> {
+  late List<_OptionItem> _options;
+
+  // 常用配置项的定义
+  static const List<Map<String, String>> _commonOptions = [
+    {'key': 'model', 'hint': 'claude-sonnet-4', 'description': '使用的模型名称'},
+    {'key': 'max_turns', 'hint': '100', 'description': '最大对话轮数'},
+    {'key': 'max_thinking_tokens', 'hint': '10000', 'description': '最大思考token数'},
+    {'key': 'fallback_model', 'hint': 'claude-opus-4', 'description': '备用模型'},
+    {'key': 'max_budget_usd', 'hint': '1.0', 'description': '最大预算（美元）'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOptions();
+  }
+
+  void _loadOptions() {
+    _options = [];
+
+    // 加载已保存的选项
+    widget.initialOptions.forEach((key, value) {
+      _options.add(_OptionItem(
+        key: key,
+        value: value.toString(),
+        keyController: TextEditingController(text: key),
+        valueController: TextEditingController(text: value.toString()),
+      ));
+    });
+
+    // 如果没有任何选项，添加一些常用的空选项
+    if (_options.isEmpty) {
+      for (var option in _commonOptions.take(3)) {
+        _options.add(_OptionItem(
+          key: option['key']!,
+          value: '',
+          keyController: TextEditingController(text: option['key']),
+          valueController: TextEditingController(),
+        ));
+      }
+    }
+  }
+
+  void _addOption() {
+    setState(() {
+      _options.add(_OptionItem(
+        key: '',
+        value: '',
+        keyController: TextEditingController(),
+        valueController: TextEditingController(),
+      ));
+    });
+  }
+
+  void _removeOption(int index) {
+    setState(() {
+      _options[index].dispose();
+      _options.removeAt(index);
+    });
+  }
+
+  Map<String, dynamic> _buildOptionsMap() {
+    final map = <String, dynamic>{};
+    for (var option in _options) {
+      final key = option.keyController.text.trim();
+      final value = option.valueController.text.trim();
+
+      if (key.isEmpty || value.isEmpty) continue;
+
+      // 尝试解析值的类型
+      if (value == 'true' || value == 'false') {
+        map[key] = value == 'true';
+      } else if (int.tryParse(value) != null) {
+        map[key] = int.parse(value);
+      } else if (double.tryParse(value) != null) {
+        map[key] = double.parse(value);
+      } else {
+        map[key] = value;
+      }
+    }
+    return map;
+  }
+
+  @override
+  void dispose() {
+    for (var option in _options) {
+      option.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appColors = context.appColors;
+    final textPrimary = Theme.of(context).textTheme.bodyLarge!.color!;
+    final dividerColor = Theme.of(context).dividerColor;
+    final primaryColor = Theme.of(context).primaryColor;
+    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      appBar: AppBar(
+        title: const Text('高级设置'),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              final options = _buildOptionsMap();
+              await widget.onSave(options);
+              if (mounted) Navigator.pop(context);
+            },
+            child: Text('保存', style: TextStyle(color: primaryColor, fontSize: 16)),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // 说明区域
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: appColors.codeBackground,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '配置说明',
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '填写键值对来配置高级选项。留空的项不会被保存。',
+                  style: TextStyle(color: appColors.textSecondary, fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '常用配置: model, max_turns, max_thinking_tokens',
+                  style: TextStyle(
+                    color: appColors.textSecondary,
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 选项列表
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _options.length,
+              itemBuilder: (context, index) {
+                final option = _options[index];
+                final commonOption = _commonOptions.firstWhere(
+                  (o) => o['key'] == option.keyController.text,
+                  orElse: () => {},
+                );
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: option.keyController,
+                                style: TextStyle(color: textPrimary, fontSize: 14),
+                                decoration: InputDecoration(
+                                  labelText: '配置项',
+                                  labelStyle: TextStyle(color: appColors.textSecondary, fontSize: 12),
+                                  hintText: '例如: model',
+                                  hintStyle: TextStyle(color: appColors.textTertiary, fontSize: 12),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                              onPressed: () => _removeOption(index),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: option.valueController,
+                          style: TextStyle(color: textPrimary, fontSize: 14),
+                          decoration: InputDecoration(
+                            labelText: '值',
+                            labelStyle: TextStyle(color: appColors.textSecondary, fontSize: 12),
+                            hintText: commonOption['hint'] ?? '输入值',
+                            hintStyle: TextStyle(color: appColors.textTertiary, fontSize: 12),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                        ),
+                        if (commonOption['description'] != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            commonOption['description']!,
+                            style: TextStyle(
+                              color: appColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // 添加按钮
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              border: Border(
+                top: BorderSide(color: dividerColor, width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _addOption,
+                    icon: const Icon(Icons.add),
+                    label: const Text('添加配置项'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: primaryColor,
+                      side: BorderSide(color: primaryColor),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OptionItem {
+  String key;
+  String value;
+  final TextEditingController keyController;
+  final TextEditingController valueController;
+
+  _OptionItem({
+    required this.key,
+    required this.value,
+    required this.keyController,
+    required this.valueController,
+  });
+
+  void dispose() {
+    keyController.dispose();
+    valueController.dispose();
+  }
 }

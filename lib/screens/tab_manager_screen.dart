@@ -55,12 +55,14 @@ class TabManagerScreen extends StatefulWidget {
   final ProjectRepository claudeRepository;
   final CodexRepository codexRepository;
   final VoidCallback? onLogout;
+  final Future<void> Function(String)? onApiUrlChanged;
 
   const TabManagerScreen({
     super.key,
     required this.claudeRepository,
     required this.codexRepository,
     this.onLogout,
+    this.onApiUrlChanged,
   });
 
   @override

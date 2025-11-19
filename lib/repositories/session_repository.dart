@@ -37,7 +37,8 @@ abstract class SessionRepository {
   // 流式发送消息，实时返回内容块
   Stream<MessageStreamEvent> sendMessageStream({
     String? sessionId, // 可选，如果为null则创建新session
-    required String content,
+    String? content,  // 改为可选（纯文本）
+    List<ContentBlock>? contentBlocks,  // 新增：支持content blocks（包含图片）
     String? cwd, // 工作目录，创建新session时必需
     SessionSettings? settings,
   });

@@ -7,8 +7,17 @@ import '../models/user_settings.dart';
 import '../services/api_service.dart';
 import 'session_repository.dart';
 
+// Message streaming state machine
+enum _StreamingMode {
+  idle,              // 等待消息
+  tokenMode,         // 仅token流式（普通对话）
+  streamEventMode,   // stream_event模式（工具调用等复杂消息）
+  finalized,         // 消息已完成
+}
+
 // Helper class to track message building state
 class _MessageBuildState {
+  _StreamingMode mode = _StreamingMode.idle;
   final contentBlockTypes = <int, String>{};
   final textBlocksBuilder = <int, StringBuffer>{};
   final toolUseBlocks = <int, Map<String, dynamic>>{};
@@ -229,20 +238,59 @@ class ApiSessionRepository implements SessionRepository {
   @override
   Stream<MessageStreamEvent> sendMessageStream({
     String? sessionId, // 可选，如果为null则创建新session
-    required String content,
+    String? content,
+    List<ContentBlock>? contentBlocks,
     String? cwd, // 工作目录，创建新session时必需
     SessionSettings? settings,
   }) async* {
+    // 构建消息内容 - 匹配后端期望的格式
+    final dynamic messageContent;
+
+    if (contentBlocks != null && contentBlocks.isNotEmpty) {
+      // 构建符合后端格式的content数组
+      // 后端期望格式：直接是数组 [{ type: "text", text: "..." }, { type: "image", source: {...} }]
+      messageContent = contentBlocks.map((block) {
+        if (block.type == ContentBlockType.image) {
+          return {
+            'type': 'image',
+            'source': {
+              'type': 'base64',
+              'media_type': block.imageMediaType ?? 'image/jpeg',
+              'data': block.imageData,
+            }
+          };
+        } else if (block.type == ContentBlockType.text) {
+          return {
+            'type': 'text',
+            'text': block.text ?? '',
+          };
+        }
+        return null;
+      }).where((item) => item != null).toList();
+
+      print('DEBUG: Sending message with ${contentBlocks.length} content blocks');
+    } else if (content != null && content.isNotEmpty) {
+      // 纯文本消息（向后兼容）
+      messageContent = content;
+      print('DEBUG: Sending text message');
+    } else {
+      throw ArgumentError('Either content or contentBlocks must be provided');
+    }
+
     // Track multiple messages by their message IDs (for multi-turn)
     final messageStates = <String, _MessageBuildState>{}; // message.id -> build state
     String? currentMessageId;
     String? createdSessionId; // 捕获新创建的session ID
     bool sessionIdEmitted = false; // 标记是否已发送session ID
 
+    // Token accumulation for word-level streaming
+    final tokenBuffer = StringBuffer();
+    int tokenCount = 0;
+
     try {
       await for (var event in _apiService.chat(
         sessionId: sessionId,
-        message: content,
+        message: messageContent,
         cwd: cwd,
         settings: settings,
       )) {
@@ -270,6 +318,78 @@ class ApiSessionRepository implements SessionRepository {
           }
         }
 
+        // 处理 'token' 事件 - 单词级别流式传输（普通对话）
+        if (eventType == 'token') {
+          final text = event['text'] as String?;
+          if (text != null && text.isNotEmpty) {
+            // 检查当前状态
+            if (currentMessageId != null && messageStates.containsKey(currentMessageId)) {
+              final state = messageStates[currentMessageId]!;
+
+              // 状态机：根据当前模式决定是否处理token
+              if (state.mode == _StreamingMode.streamEventMode) {
+                // 已切换到stream_event模式，忽略token
+                print('DEBUG SSE: ⊘ Ignoring token (in streamEventMode)');
+                continue;
+              } else if (state.mode == _StreamingMode.finalized) {
+                // 已完成，忽略后续token
+                print('DEBUG SSE: ⊘ Ignoring token (finalized)');
+                continue;
+              }
+            }
+
+            tokenBuffer.write(text);
+            tokenCount++;
+
+            // 每累积10个token或遇到换行符时发送一次更新（优化性能）
+            if (tokenCount >= 10 || text.contains('\n')) {
+              // 如果还没有当前消息，创建新的
+              if (currentMessageId == null) {
+                currentMessageId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
+                messageStates[currentMessageId] = _MessageBuildState();
+              }
+
+              final state = messageStates[currentMessageId]!;
+
+              // 设置为 tokenMode（如果还是idle）
+              if (state.mode == _StreamingMode.idle) {
+                state.mode = _StreamingMode.tokenMode;
+                print('DEBUG SSE: → Enter TOKEN_MODE');
+              }
+
+              // 将token累积到第一个文本块
+              if (!state.textBlocksBuilder.containsKey(0)) {
+                state.textBlocksBuilder[0] = StringBuffer();
+                state.contentBlockTypes[0] = 'text';
+              }
+              state.textBlocksBuilder[0]!.write(tokenBuffer.toString());
+
+              // 清空token buffer
+              tokenBuffer.clear();
+              tokenCount = 0;
+
+              // 构建并发送部分消息
+              final blocks = _buildContentBlocks(
+                state.contentBlockTypes,
+                state.textBlocksBuilder,
+                state.toolUseBlocks,
+                state.finalizedBlocks,
+              );
+
+              if (blocks.isNotEmpty) {
+                yield MessageStreamEvent(
+                  partialMessage: Message.fromBlocks(
+                    id: currentMessageId!,
+                    role: MessageRole.assistant,
+                    blocks: List.from(blocks),
+                  ),
+                );
+              }
+            }
+          }
+          continue;
+        }
+
         // Check if this is a message event with stream_event payload
         bool isStreamEvent = false;
         Map<String, dynamic>? streamEvent;
@@ -287,16 +407,37 @@ class ApiSessionRepository implements SessionRepository {
         if (isStreamEvent && streamEvent != null) {
           final streamEventType = streamEvent['type'];
 
-          // message_start: Extract message ID
+          // message_start: Extract message ID and switch to STREAM_EVENT_MODE
           if (streamEventType == 'message_start') {
             final message = streamEvent['message'];
             if (message != null) {
               final messageId = message['id'] as String?;
               if (messageId != null) {
-                currentMessageId = messageId;
-                if (!messageStates.containsKey(messageId)) {
-                  messageStates[messageId] = _MessageBuildState();
+                // 检查是否已有temp消息（从token创建的）
+                if (currentMessageId != null && currentMessageId!.startsWith('temp_')) {
+                  // 有temp消息，需要迁移或替换
+                  final tempState = messageStates[currentMessageId];
+                  if (tempState != null && tempState.mode == _StreamingMode.tokenMode) {
+                    print('DEBUG SSE: → Switching from TOKEN_MODE to STREAM_EVENT_MODE');
+                    // 清空token累积的数据，使用stream_event重建
+                    tempState.textBlocksBuilder.clear();
+                    tempState.contentBlockTypes.clear();
+                    tempState.mode = _StreamingMode.streamEventMode;
+                  }
+                  // 使用真实ID替换temp ID
+                  messageStates.remove(currentMessageId);
+                  messageStates[messageId] = tempState ?? _MessageBuildState();
+                } else {
+                  // 没有temp消息，直接创建新的
+                  if (!messageStates.containsKey(messageId)) {
+                    messageStates[messageId] = _MessageBuildState();
+                  }
                 }
+
+                final state = messageStates[messageId]!;
+                state.mode = _StreamingMode.streamEventMode;
+                currentMessageId = messageId;
+                print('DEBUG SSE: → Enter STREAM_EVENT_MODE, ID: $messageId');
               }
             }
             continue; // Don't emit anything for message_start
@@ -314,6 +455,7 @@ class ApiSessionRepository implements SessionRepository {
             if (index != null && contentBlock != null) {
               final blockType = contentBlock['type'] as String?;
               state.contentBlockTypes[index] = blockType ?? 'text';
+              print('DEBUG SSE: content_block_start at index $index, type: $blockType');
 
               if (blockType == 'text') {
                 state.textBlocksBuilder[index] = StringBuffer();
@@ -327,6 +469,15 @@ class ApiSessionRepository implements SessionRepository {
                   'name': contentBlock['name'],
                   'input': {},
                 };
+              } else if (blockType == 'tool_result') {
+                // 处理工具结果块
+                state.toolUseBlocks[index] = {
+                  'type': 'tool_result',
+                  'tool_use_id': contentBlock['tool_use_id'],
+                  'content': contentBlock['content'],
+                  'is_error': contentBlock['is_error'],
+                };
+                print('DEBUG SSE: tool_result block started at index $index');
               }
             }
           } else if (streamEventType == 'content_block_delta') {
@@ -421,7 +572,7 @@ class ApiSessionRepository implements SessionRepository {
             }
           } else if (streamEventType == 'message_stop') {
             // Message completed - emit final version
-            if (currentMessageId != null && state != null) {
+            if (currentMessageId != null && state != null && !state.finalized) {
               final blocks = _buildContentBlocks(
                 state.contentBlockTypes,
                 state.textBlocksBuilder,
@@ -430,6 +581,7 @@ class ApiSessionRepository implements SessionRepository {
               );
 
               if (blocks.isNotEmpty) {
+                print('DEBUG SSE: ✓✓✓ EMIT FINAL at message_stop, ID: $currentMessageId ✓✓✓');
                 yield MessageStreamEvent(
                   finalMessage: Message.fromBlocks(
                     id: currentMessageId!,
@@ -437,8 +589,13 @@ class ApiSessionRepository implements SessionRepository {
                     blocks: blocks,
                   ),
                 );
+                // 切换到 FINALIZED 状态
+                state.mode = _StreamingMode.finalized;
                 state.finalized = true;
+                print('DEBUG SSE:     → FINALIZED');
               }
+            } else if (state != null && state.finalized) {
+              print('DEBUG SSE: ⊘⊘⊘ SKIP message_stop (already finalized) ⊘⊘⊘');
             }
           }
         } else if (eventType == 'message') {
@@ -449,14 +606,68 @@ class ApiSessionRepository implements SessionRepository {
             continue;
           }
 
-          if (payload != null && payload['type'] == 'assistant') {
+          final payloadType = payload?['type'] as String?;
+          print('DEBUG SSE: Processing message payload type: $payloadType');
+
+          if (payload != null && payloadType == 'user') {
+            // User type message (usually contains tool_result)
+            print('DEBUG SSE: Processing user message (likely tool_result)');
+            final messageId = payload['id'] as String?;
+            final messageContent = payload['content'];
+            print('DEBUG SSE: User message content type: ${messageContent.runtimeType}, content: $messageContent');
+
+            if (messageContent is List) {
+              final currentBlocks = <ContentBlock>[];
+              for (var blockJson in messageContent) {
+                if (blockJson is Map<String, dynamic>) {
+                  try {
+                    final block = ContentBlock.fromJson(blockJson);
+                    currentBlocks.add(block);
+                    print('DEBUG SSE: Parsed content block type: ${block.type}');
+                  } catch (e) {
+                    print('DEBUG SSE: Failed to parse content block: $e');
+                    // Skip invalid blocks
+                  }
+                }
+              }
+
+              if (currentBlocks.isNotEmpty) {
+                // Tool results are marked as 'user' by backend, but should be displayed as assistant messages
+                final hasOnlyToolResults = currentBlocks.every((block) => block.type == ContentBlockType.toolResult);
+                final messageRole = hasOnlyToolResults ? MessageRole.assistant : MessageRole.user;
+                print('DEBUG SSE: Emitting user message with ${currentBlocks.length} blocks, role: $messageRole');
+
+                final fallbackId = messageId ?? 'user_${DateTime.now().millisecondsSinceEpoch}';
+                yield MessageStreamEvent(
+                  finalMessage: Message.fromBlocks(
+                    id: fallbackId,
+                    role: messageRole,
+                    blocks: List.from(currentBlocks),
+                  ),
+                );
+              } else {
+                print('DEBUG SSE: No content blocks parsed from user message');
+              }
+            } else {
+              print('DEBUG SSE: User message content is not a List');
+            }
+          } else if (payload != null && payloadType == 'assistant') {
             // Complete message received - only use if no streaming occurred
             final messageId = payload['id'] as String?;
 
             // Skip if we have any messages built via streaming
-            // (AssistantMessage often lacks ID, so we can't match it precisely)
+            // Check if this specific message was already finalized
+            if (messageId != null && messageStates.containsKey(messageId)) {
+              final state = messageStates[messageId];
+              if (state != null && state.finalized) {
+                print('DEBUG SSE: Skipping duplicate assistant message $messageId (already finalized)');
+                continue;
+              }
+            }
+
+            // Also skip if any streaming has occurred (for messages without ID)
             if (messageStates.isNotEmpty) {
-              // If any streaming has occurred, ignore non-streaming fallbacks
+              print('DEBUG SSE: Skipping assistant message (streaming occurred)');
               continue;
             }
 
@@ -470,6 +681,7 @@ class ApiSessionRepository implements SessionRepository {
                     final block = ContentBlock.fromJson(blockJson);
                     currentBlocks.add(block);
                   } catch (e) {
+                    print('DEBUG SSE: Failed to parse content block: $e');
                     // Skip invalid blocks
                   }
                 }
@@ -477,6 +689,7 @@ class ApiSessionRepository implements SessionRepository {
 
               if (currentBlocks.isNotEmpty) {
                 final fallbackId = messageId ?? '${sessionId}_${DateTime.now().millisecondsSinceEpoch}';
+                print('DEBUG SSE: ✓✓✓ EMIT FINAL non-streaming assistant, ID: $fallbackId ✓✓✓');
                 yield MessageStreamEvent(
                   finalMessage: Message.fromBlocks(
                     id: fallbackId,
@@ -486,16 +699,70 @@ class ApiSessionRepository implements SessionRepository {
                 );
               }
             }
-          } else if (payload != null && payload['type'] == 'result') {
+          } else if (payload != null && payloadType == 'result') {
             // ResultMessage: 提取统计信息
             final stats = MessageStats.fromResultPayload(payload);
             // 发送统计信息
             yield MessageStreamEvent(
               stats: stats,
             );
+          } else if (payload != null && payloadType != null) {
+            // 其他未知类型的消息（如 cost_report 等）
+            // 记录日志但不处理，避免崩溃
+            print('DEBUG SSE: Ignoring unhandled message payload type: $payloadType');
+            // 可以根据需要添加对特定类型的处理
           }
         } else if (eventType == 'done') {
-          // Stream completed - only needed for stats/cleanup
+          print('DEBUG SSE: === Event 5: done ===');
+
+          // Stream completed - only flush tokens if in TOKEN_MODE
+          if (currentMessageId != null) {
+            final state = messageStates[currentMessageId];
+
+            if (state != null) {
+              if (state.finalized) {
+                print('DEBUG SSE: ⊘ Done event, already finalized');
+              } else if (state.mode == _StreamingMode.streamEventMode) {
+                print('DEBUG SSE: ⊘ Done event, in STREAM_EVENT_MODE (message_stop already finalized)');
+                // message_stop should have already finalized, but just in case:
+                state.mode = _StreamingMode.finalized;
+                state.finalized = true;
+              } else if (state.mode == _StreamingMode.tokenMode && tokenBuffer.isNotEmpty) {
+                // Flush remaining tokens in TOKEN_MODE
+                print('DEBUG SSE: → Flushing remaining tokens in TOKEN_MODE');
+
+                if (!state.textBlocksBuilder.containsKey(0)) {
+                  state.textBlocksBuilder[0] = StringBuffer();
+                  state.contentBlockTypes[0] = 'text';
+                }
+                state.textBlocksBuilder[0]!.write(tokenBuffer.toString());
+                tokenBuffer.clear();
+
+                final blocks = _buildContentBlocks(
+                  state.contentBlockTypes,
+                  state.textBlocksBuilder,
+                  state.toolUseBlocks,
+                  state.finalizedBlocks,
+                );
+
+                if (blocks.isNotEmpty) {
+                  print('DEBUG SSE: ✓✓✓ EMIT FINAL at done (TOKEN_MODE), ID: $currentMessageId ✓✓✓');
+                  yield MessageStreamEvent(
+                    finalMessage: Message.fromBlocks(
+                      id: currentMessageId!,
+                      role: MessageRole.assistant,
+                      blocks: blocks,
+                    ),
+                  );
+                  state.mode = _StreamingMode.finalized;
+                  state.finalized = true;
+                  print('DEBUG SSE:     → FINALIZED');
+                }
+              }
+            }
+          }
+
+          print('DEBUG SSE: ✓ Stream done');
           yield MessageStreamEvent(isDone: true);
           return;
         } else if (eventType == 'error') {
@@ -554,6 +821,16 @@ class ApiSessionRepository implements SessionRepository {
             input: toolBlock['input'] as Map<String, dynamic>?,
           ));
         }
+      } else if (blockType == 'tool_result' && toolBlocks.containsKey(index)) {
+        // Include tool_result blocks (usually finalized immediately)
+        final toolBlock = toolBlocks[index]!;
+        blocks.add(ContentBlock(
+          type: ContentBlockType.toolResult,
+          toolUseId: toolBlock['tool_use_id'] as String?,
+          content: toolBlock['content'],
+          isError: toolBlock['is_error'] as bool?,
+        ));
+        print('DEBUG SSE: Added tool_result block to message');
       }
     }
 

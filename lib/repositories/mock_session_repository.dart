@@ -50,13 +50,23 @@ class MockSessionRepository implements SessionRepository {
   @override
   Stream<MessageStreamEvent> sendMessageStream({
     String? sessionId,
-    required String content,
+    String? content,
+    List<ContentBlock>? contentBlocks,
     String? cwd,
     SessionSettings? settings,
   }) async* {
     await Future.delayed(const Duration(milliseconds: 500));
 
-    final response = Message.assistant('This is a mock response to: $content');
+    // 从 content 或 contentBlocks 提取文本
+    String messageText = content ?? '';
+    if (messageText.isEmpty && contentBlocks != null && contentBlocks.isNotEmpty) {
+      messageText = contentBlocks
+          .where((block) => block.type == ContentBlockType.text)
+          .map((block) => block.text ?? '')
+          .join(' ');
+    }
+
+    final response = Message.assistant('This is a mock response to: $messageText');
     final actualSessionId = sessionId ?? 'mock_session_${DateTime.now().millisecondsSinceEpoch}';
     _messageStore.putIfAbsent(actualSessionId, () => []);
     _messageStore[actualSessionId]!.add(response);

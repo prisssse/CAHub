@@ -236,6 +236,10 @@ class ApiCodexRepository implements CodexRepository {
     String? createdSessionId;
     bool sessionIdEmitted = false;
 
+    // 为当前这轮对话生成一个固定的消息 ID
+    final fixedMessageId = 'codex_${DateTime.now().millisecondsSinceEpoch}';
+    final textBuffer = StringBuffer(); // 累积文本内容
+
     try {
       await for (var event in _apiService.chat(
         sessionId: sessionId,
@@ -266,8 +270,16 @@ class ApiCodexRepository implements CodexRepository {
         if (eventType == 'token') {
           final text = event['text'] as String?;
           if (text != null && text.isNotEmpty) {
+            textBuffer.write(text); // 累积文本
+            // 使用固定的消息 ID 和累积的文本创建消息
             yield CodexMessageStreamEvent(
-              partialMessage: Message.assistant(text),
+              partialMessage: Message.fromBlocks(
+                id: fixedMessageId,
+                role: MessageRole.assistant,
+                blocks: [
+                  ContentBlock(type: ContentBlockType.text, text: textBuffer.toString()),
+                ],
+              ),
             );
           }
           continue;
@@ -281,8 +293,15 @@ class ApiCodexRepository implements CodexRepository {
             if (item != null && item['type'] == 'agent_message') {
               final text = item['text'] as String?;
               if (text != null && text.isNotEmpty) {
+                // 使用固定的消息 ID 创建最终消息
                 yield CodexMessageStreamEvent(
-                  finalMessage: Message.assistant(text),
+                  finalMessage: Message.fromBlocks(
+                    id: fixedMessageId,
+                    role: MessageRole.assistant,
+                    blocks: [
+                      ContentBlock(type: ContentBlockType.text, text: text),
+                    ],
+                  ),
                 );
               }
             }

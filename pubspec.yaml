@@ -49,6 +49,12 @@ dependencies:
   # Window manager for custom title bar
   window_manager: ^0.4.2
 
+  # Image picker for attaching images
+  image_picker: ^1.0.7
+
+  # File picker as fallback
+  file_picker: ^8.0.0+1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -4,13 +4,19 @@ import '../models/session_settings.dart';
 import 'auth_service.dart';
 
 class ApiService {
-  final String baseUrl;
+  String baseUrl;
   final AuthService? authService;
 
   ApiService({
     this.baseUrl = 'http://127.0.0.1:8207',
     this.authService,
   });
+
+  /// Update the base URL dynamically
+  void updateBaseUrl(String newUrl) {
+    baseUrl = newUrl;
+    print('DEBUG: ApiService baseUrl updated to: $newUrl');
+  }
 
   Map<String, String> _getHeaders() {
     final headers = <String, String>{
@@ -55,7 +61,7 @@ class ApiService {
 
   Stream<Map<String, dynamic>> chat({
     String? sessionId,
-    required String message,
+    dynamic message,  // 支持 String 或 Map (包含content数组)
     String? cwd,
     SessionSettings? settings,
   }) async* {
@@ -64,6 +70,8 @@ class ApiService {
     if (sessionId != null) {
       body['session_id'] = sessionId;
     }
+
+    // message 可以是字符串或包含content的对象
     body['message'] = message;
 
     if (cwd != null) {

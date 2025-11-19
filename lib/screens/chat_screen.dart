@@ -1,7 +1,11 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/message.dart';
 import '../models/session.dart';
 import '../models/session_settings.dart';
@@ -10,6 +14,7 @@ import '../widgets/message_bubble.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/platform_helper.dart';
 import '../repositories/api_codex_repository.dart';
+import '../repositories/session_repository.dart';
 import '../services/session_settings_service.dart';
 import '../services/app_settings_service.dart';
 import 'session_settings_screen.dart';
@@ -39,6 +44,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   final List<Message> _messages = [];
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _inputFocusNode = FocusNode(); // 输入框焦点节点
+  final ImagePicker _imagePicker = ImagePicker();
   bool _isLoading = false;
   bool _isSending = false;
   SessionSettings? _settings;
@@ -48,6 +55,10 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   bool _userScrolling = false; // 用户是否正在手动滚动
   late Session _currentSession; // 当前session，可能在第一次发送消息时更新
   String? _currentRunId; // 当前运行的任务ID（用于停止任务，仅限 Claude Code）
+
+  // Image attachments
+  final List<File> _selectedImages = [];
+  final List<String> _imageBase64List = [];
   bool _sessionProcessing = false; // 会话是否正在处理中（用于持续对话功能）
 
   // 节流相关 - 优化流式传输UI更新
@@ -246,27 +257,137 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     }
   }
 
-  Future<void> _handleSubmit(String text) async {
-    if (text.trim().isEmpty || _isSending) return;
-
-    // 对于 Claude Code，如果会话正在处理中，不允许发送新消息
-    if (widget.repository is! ApiCodexRepository && _sessionProcessing) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('会话正在处理中，请等待当前消息完成'),
-          behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.only(
-            top: 16,
-            left: 16,
-            right: 16,
-            bottom: MediaQuery.of(context).size.height - 100,
-          ),
-        ),
+  // Pick images from gallery or camera
+  Future<void> _pickImages() async {
+    try {
+      final List<XFile> images = await _imagePicker.pickMultiImage(
+        imageQuality: 85,
       );
+
+      if (images.isNotEmpty) {
+        for (var image in images) {
+          final file = File(image.path);
+          final bytes = await file.readAsBytes();
+          final base64 = base64Encode(bytes);
+
+          setState(() {
+            _selectedImages.add(file);
+            _imageBase64List.add(base64);
+          });
+        }
+      }
+    } catch (e) {
+      print('DEBUG: Error picking images: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('选择图片失败: $e')),
+        );
+      }
+    }
+  }
+
+  // Pick single image from camera
+  Future<void> _pickImageFromCamera() async {
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        final file = File(image.path);
+        final bytes = await file.readAsBytes();
+        final base64 = base64Encode(bytes);
+
+        setState(() {
+          _selectedImages.add(file);
+          _imageBase64List.add(base64);
+        });
+      }
+    } catch (e) {
+      print('DEBUG: Error picking image from camera: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('拍照失败: $e')),
+        );
+      }
+    }
+  }
+
+  // Remove selected image
+  void _removeImage(int index) {
+    setState(() {
+      _selectedImages.removeAt(index);
+      _imageBase64List.removeAt(index);
+    });
+  }
+
+  // Clear all images
+  void _clearImages() {
+    setState(() {
+      _selectedImages.clear();
+      _imageBase64List.clear();
+    });
+  }
+
+  // Get media type from file extension
+  String _getMediaType(String path) {
+    final ext = path.toLowerCase().split('.').last;
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  Future<void> _handleSubmit(String text) async {
+    // 允许只发送图片（文本可以为空）
+    if (text.trim().isEmpty && _selectedImages.isEmpty) return;
+
+    // 对于 Claude Code，支持持续消息传递（在流式响应中发送新消息）
+    // 注意：_sessionProcessing 标记会话是否在处理，现在允许在处理中发送新消息
+    // 新消息会被注入到当前活动的流中
+
+    // 对于 Codex，仍然阻止在发送中再次发送
+    if (_isSending && widget.repository is ApiCodexRepository) {
       return;
     }
 
-    final userMessage = Message.user(text);
+    // 构建content blocks（包括文本和图片）
+    final List<ContentBlock> contentBlocks = [];
+
+    // 添加图片blocks
+    for (int i = 0; i < _selectedImages.length; i++) {
+      final mediaType = _getMediaType(_selectedImages[i].path);
+      contentBlocks.add(ContentBlock.image(
+        base64Data: _imageBase64List[i],
+        mediaType: mediaType,
+      ));
+    }
+
+    // 添加文本block（如果有文本）
+    if (text.trim().isNotEmpty) {
+      contentBlocks.add(ContentBlock(
+        type: ContentBlockType.text,
+        text: text,
+      ));
+    }
+
+    // 创建用户消息
+    final userMessage = Message.fromBlocks(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      role: MessageRole.user,
+      blocks: contentBlocks,
+    );
+
     setState(() {
       _messages.add(userMessage);
       _isSending = true;
@@ -274,6 +395,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       _userScrolling = false; // 重置手动滚动标志，确保新消息能自动滚动
     });
     _textController.clear();
+    _clearImages(); // 清空选中的图片
     _scrollToBottom();
 
     // Track current assistant message by ID (for multi-turn support)
@@ -287,18 +409,20 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       // 根据 repository 类型调用不同的 sendMessageStream
       final Stream<dynamic> eventStream;
       if (widget.repository is ApiCodexRepository) {
-        // Codex 使用 codexSettings
-        eventStream = widget.repository.sendMessageStream(
+        // Codex 使用 codexSettings (暂不支持图片)
+        final codexRepo = widget.repository as ApiCodexRepository;
+        eventStream = codexRepo.sendMessageStream(
           sessionId: sessionIdToUse,
           content: text,
           cwd: _currentSession.cwd,
           codexSettings: _codexSettings,
         );
       } else {
-        // Claude Code 使用 settings
-        eventStream = widget.repository.sendMessageStream(
+        // Claude Code - 支持图片，发送 contentBlocks
+        final claudeRepo = widget.repository as SessionRepository;
+        eventStream = claudeRepo.sendMessageStream(
           sessionId: sessionIdToUse,
-          content: text,
+          contentBlocks: contentBlocks,  // 发送 content blocks（包含图片）
           cwd: _currentSession.cwd,
           settings: _settings,
         );
@@ -325,18 +449,31 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         }
 
         // 捕获 run_id（用于停止任务，仅限 Claude Code）
-        if (event.runId != null && event.runId!.isNotEmpty) {
-          if (mounted) {
-            setState(() {
-              _currentRunId = event.runId;
-            });
-            print('DEBUG: Captured run_id: ${event.runId}');
+        // Codex 的事件没有 runId 属性，需要先检查
+        if (widget.repository is! ApiCodexRepository) {
+          // 只有 Claude Code 才有 runId
+          final messageEvent = event as MessageStreamEvent;
+          if (messageEvent.runId != null && messageEvent.runId!.isNotEmpty) {
+            if (mounted) {
+              setState(() {
+                _currentRunId = messageEvent.runId;
+              });
+              print('DEBUG: Captured run_id: ${messageEvent.runId}');
+            }
           }
         }
 
         if (event.error != null) {
           if (mounted) {
-            setState(() => _isSending = false);
+            setState(() {
+              // 如果有 run_id，说明任务已经在后台运行，保持 _isSending 状态让用户可以停止
+              // 如果没有 run_id，说明任务还没开始，可以完全重置状态
+              if (_currentRunId == null || _currentRunId!.isEmpty) {
+                _isSending = false;
+                _sessionProcessing = false;
+              }
+              // 如果有 run_id，不清除它，让用户可以通过停止按钮取消
+            });
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('发送失败: ${event.error}'),
@@ -366,10 +503,12 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         if (event.partialMessage != null) {
           final partial = event.partialMessage!;
           final messageId = partial.id;
+          print('UI: ⟳ PARTIAL MSG, ID: $messageId, map contains: ${assistantMessagesByIdIndex.containsKey(messageId)}, total msgs: ${_messages.length}');
 
           if (assistantMessagesByIdIndex.containsKey(messageId)) {
             // Update existing message
             final index = assistantMessagesByIdIndex[messageId]!;
+            print('UI:   → UPDATE at index $index');
             if (index >= 0 &&
                 index < _messages.length &&
                 _messages[index].role == MessageRole.assistant) {
@@ -378,6 +517,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
             }
           } else {
             // Add new assistant message
+            print('UI:   → ADD NEW at index ${_messages.length}');
             _messages.add(partial);
             assistantMessagesByIdIndex[messageId] = _messages.length - 1;
             _throttledUpdate(); // 节流更新UI
@@ -388,10 +528,12 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         if (event.finalMessage != null) {
           final final_ = event.finalMessage!;
           final messageId = final_.id;
+          print('UI: ✓ FINAL MSG, ID: $messageId, map contains: ${assistantMessagesByIdIndex.containsKey(messageId)}, total msgs: ${_messages.length}');
 
           if (assistantMessagesByIdIndex.containsKey(messageId)) {
             // Replace with final message
             final index = assistantMessagesByIdIndex[messageId]!;
+            print('UI:   → REPLACE at index $index');
             if (index >= 0 &&
                 index < _messages.length &&
                 _messages[index].role == MessageRole.assistant) {
@@ -403,6 +545,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
             }
           } else {
             // Fallback: add final message if no partial was received
+            print('UI:   → ADD NEW FINAL at index ${_messages.length} (NO PARTIAL!)');
             if (mounted) {
               setState(() {
                 _messages.add(final_);
@@ -811,6 +954,46 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
             const LinearProgressIndicator()
           else
             Container(height: 4),
+          // 持续消息状态横幅
+          if (_sessionProcessing && widget.repository is! ApiCodexRepository)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Claude 正在回复中... 您可以随时补充信息或提出新问题',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: context.appColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  if (_currentRunId != null)
+                    TextButton(
+                      onPressed: _handleStop,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text('停止', style: TextStyle(fontSize: 12)),
+                    ),
+                ],
+              ),
+            ),
           Expanded(
             child: _messages.isEmpty
                 ? _buildEmptyState()
@@ -1163,99 +1346,187 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(8.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: Container(
-                  constraints: const BoxConstraints(maxHeight: 150),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: CallbackShortcuts(
-                    bindings: {
-                      // Enter 键（不带 Shift）发送消息
-                      const SingleActivator(LogicalKeyboardKey.enter): () {
-                        if (!_isSending) {
-                          _handleSubmit(_textController.text);
-                        }
-                      },
-                      // Shift + Enter 键换行（由 TextField 默认处理）
-                    },
-                    child: TextField(
-                      controller: _textController,
-                      decoration: InputDecoration(
-                        hintText: '输入消息...',
-                        hintStyle: TextStyle(
-                          color: Colors.grey.shade400,
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                      ),
-                      maxLines: null,
-                      textInputAction: TextInputAction.newline,
-                      enabled: !_isSending,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // 停止按钮（仅在发送中且为 Claude Code 时显示）
-              if (_isSending && widget.repository is! ApiCodexRepository) ...[
-                Material(
-                  color: Colors.red,
-                  borderRadius: BorderRadius.circular(24),
-                  child: InkWell(
-                    onTap: _handleStop,
-                    borderRadius: BorderRadius.circular(24),
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      alignment: Alignment.center,
-                      child: const Icon(
-                        Icons.stop,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-              // 发送按钮
-              Material(
-                color: (_isSending || (widget.repository is! ApiCodexRepository && _sessionProcessing))
-                    ? appColors.textTertiary
-                    : primaryColor,
-                borderRadius: BorderRadius.circular(24),
-                child: InkWell(
-                  onTap: (_isSending || (widget.repository is! ApiCodexRepository && _sessionProcessing))
-                      ? null
-                      : () => _handleSubmit(_textController.text),
-                  borderRadius: BorderRadius.circular(24),
-                  child: Container(
-                    width: 48,
-                    height: 48,
-                    alignment: Alignment.center,
-                    child: (_isSending || (widget.repository is! ApiCodexRepository && _sessionProcessing))
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
+              // 图片预览区域
+              if (_selectedImages.isNotEmpty)
+                Container(
+                  height: 100,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _selectedImages.length,
+                    itemBuilder: (context, index) {
+                      return Stack(
+                        children: [
+                          Container(
+                            width: 100,
+                            height: 100,
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: dividerColor),
+                              image: DecorationImage(
+                                image: FileImage(_selectedImages[index]),
+                                fit: BoxFit.cover,
+                              ),
                             ),
-                          )
-                        : const Icon(
-                            Icons.send,
+                          ),
+                          Positioned(
+                            top: 4,
+                            right: 12,
+                            child: GestureDetector(
+                              onTap: () => _removeImage(index),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  shape: BoxShape.circle,
+                                ),
+                                padding: const EdgeInsets.all(4),
+                                child: const Icon(
+                                  Icons.close,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              // 输入框和按钮
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // 图片选择按钮（仅 Claude Code 模式显示）
+                  if (widget.repository is! ApiCodexRepository) ...[
+                    Material(
+                      color: appColors.claudeBubble,
+                      borderRadius: BorderRadius.circular(24),
+                      child: InkWell(
+                        onTap: _pickImages,
+                        borderRadius: BorderRadius.circular(24),
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.image,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 150),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: CallbackShortcuts(
+                        bindings: Platform.isAndroid || Platform.isIOS
+                            ? {} // 移动端不使用快捷键
+                            : {
+                                // 桌面端：纯 Enter 键发送消息（不带任何修饰键）
+                                const SingleActivator(
+                                  LogicalKeyboardKey.enter,
+                                  shift: false,
+                                  control: false,
+                                  alt: false,
+                                  meta: false,
+                                ): () {
+                                  if (!_isSending && _textController.text.trim().isNotEmpty) {
+                                    _handleSubmit(_textController.text);
+                                  }
+                                },
+                              },
+                        child: TextField(
+                          controller: _textController,
+                          focusNode: _inputFocusNode,
+                          decoration: InputDecoration(
+                            hintText: _sessionProcessing && widget.repository is! ApiCodexRepository
+                                ? '补充信息或继续提问...'
+                                : '输入消息...',
+                            hintStyle: TextStyle(
+                              color: Colors.grey.shade400,
+                            ),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                          ),
+                          maxLines: null,
+                          minLines: 1,
+                          keyboardType: TextInputType.multiline,
+                          textInputAction: Platform.isAndroid || Platform.isIOS
+                              ? TextInputAction.send
+                              : TextInputAction.newline, // 桌面端支持 Shift+Enter 换行
+                          enabled: true,
+                          enableInteractiveSelection: true,
+                          onSubmitted: Platform.isAndroid || Platform.isIOS
+                              ? (text) {
+                                  // 移动端：键盘发送按钮
+                                  if (!_isSending && text.trim().isNotEmpty) {
+                                    _handleSubmit(text);
+                                  }
+                                }
+                              : null, // 桌面端由 CallbackShortcuts 处理
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // 停止按钮（仅在发送中且为 Claude Code 时显示）
+                  if (_isSending && widget.repository is! ApiCodexRepository) ...[
+                    Material(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(24),
+                      child: InkWell(
+                        onTap: _handleStop,
+                        borderRadius: BorderRadius.circular(24),
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            Icons.stop,
                             color: Colors.white,
                           ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  // 发送按钮
+                  Material(
+                    color: (_sessionProcessing && widget.repository is! ApiCodexRepository)
+                        ? primaryColor.withOpacity(0.8) // 持续消息模式：稍微变暗表示可以补充信息
+                        : primaryColor,
+                    borderRadius: BorderRadius.circular(24),
+                    child: InkWell(
+                      onTap: () => _handleSubmit(_textController.text),
+                      borderRadius: BorderRadius.circular(24),
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        alignment: Alignment.center,
+                        child: Icon(
+                          _sessionProcessing && widget.repository is! ApiCodexRepository
+                              ? Icons.add_comment // 持续消息模式：使用不同图标
+                              : Icons.send,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ],
           ),
@@ -1268,6 +1539,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   void dispose() {
     _textController.dispose();
     _scrollController.dispose();
+    _inputFocusNode.dispose();
     super.dispose();
   }
 }

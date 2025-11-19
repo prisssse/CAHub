@@ -146,6 +146,9 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
           isError: block.isError ?? false,
         );
 
+      case ContentBlockType.image:
+        return _buildImageBlock(context, block);
+
       default:
         return const SizedBox.shrink();
     }
@@ -161,29 +164,16 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
     final codeBlockPattern = RegExp(r'```(\w*)[\r\n]+([\s\S]*?)[\r\n]+```');
     final matches = codeBlockPattern.allMatches(text).toList();
 
-    // 如果没有代码块，直接使用markdown渲染
+    // 如果没有代码块，使用 SelectableText 直接渲染
     if (matches.isEmpty) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),
-        child: MarkdownBody(
-          data: text,
-          selectable: false,
-          styleSheet: MarkdownStyleSheet(
-            p: TextStyle(
-              color: textPrimary,
-              fontSize: 15,
-              height: 1.5,
-            ),
-            code: TextStyle(
-              backgroundColor: appColors.toolBackground.withOpacity(0.3),
-              color: textPrimary,
-              fontSize: 14,
-              fontFamily: 'monospace',
-            ),
-            blockquote: TextStyle(
-              color: appColors.textSecondary,
-              fontStyle: FontStyle.italic,
-            ),
+        child: SelectableText(
+          text,
+          style: TextStyle(
+            color: textPrimary,
+            fontSize: 15,
+            height: 1.5,
           ),
         ),
       );
@@ -205,21 +195,12 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
           widgets.add(
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: MarkdownBody(
-                data: beforeText,
-                selectable: false,
-                styleSheet: MarkdownStyleSheet(
-                  p: TextStyle(
-                    color: textPrimary,
-                    fontSize: 15,
-                    height: 1.5,
-                  ),
-                  code: TextStyle(
-                    backgroundColor: appColors.toolBackground.withOpacity(0.3),
-                    color: textPrimary,
-                    fontSize: 14,
-                    fontFamily: 'monospace',
-                  ),
+              child: SelectableText(
+                beforeText,
+                style: TextStyle(
+                  color: textPrimary,
+                  fontSize: 15,
+                  height: 1.5,
                 ),
               ),
             ),
@@ -244,21 +225,12 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
         widgets.add(
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: MarkdownBody(
-              data: afterText,
-              selectable: false,
-              styleSheet: MarkdownStyleSheet(
-                p: TextStyle(
-                  color: textPrimary,
-                  fontSize: 15,
-                  height: 1.5,
-                ),
-                code: TextStyle(
-                  backgroundColor: appColors.toolBackground.withOpacity(0.3),
-                  color: textPrimary,
-                  fontSize: 14,
-                  fontFamily: 'monospace',
-                ),
+            child: SelectableText(
+              afterText,
+              style: TextStyle(
+                color: textPrimary,
+                fontSize: 15,
+                height: 1.5,
               ),
             ),
           ),
@@ -502,6 +474,56 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
     }
   }
 
+  Widget _buildImageBlock(BuildContext context, ContentBlock block) {
+    if (block.imageData == null || block.imageData!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final appColors = context.appColors;
+    final dividerColor = Theme.of(context).dividerColor;
+
+    // 使用图片数据的哈希作为 key，确保相同图片不会重新构建
+    final imageKey = ValueKey(block.imageData!.hashCode);
+
+    return Container(
+      key: imageKey,
+      margin: const EdgeInsets.only(bottom: 8),
+      constraints: const BoxConstraints(
+        maxWidth: 300,
+        maxHeight: 300,
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: dividerColor),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.memory(
+          base64Decode(block.imageData!),
+          fit: BoxFit.contain,
+          gaplessPlayback: true, // 防止图片闪烁
+          cacheWidth: 600, // 缓存宽度，提高性能
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.broken_image, color: appColors.textSecondary),
+                  const SizedBox(height: 8),
+                  Text(
+                    '图片加载失败',
+                    style: TextStyle(color: appColors.textSecondary, fontSize: 12),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildThinkingBlock(BuildContext context, String thinking) {
     if (thinking.isEmpty) return const SizedBox.shrink();
 
@@ -659,25 +681,52 @@ class _MessageBubbleState extends State<MessageBubble> with AutomaticKeepAliveCl
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(
-                isError ? Icons.error_outline : Icons.check_circle_outline,
-                size: 16,
-                color: isError ? errorColor : appColors.textSecondary,
+              Row(
+                children: [
+                  Icon(
+                    isError ? Icons.error_outline : Icons.check_circle_outline,
+                    size: 16,
+                    color: isError ? errorColor : appColors.textSecondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    isError ? '工具错误' : '工具结果',
+                    style: TextStyle(
+                      color: isError ? errorColor : appColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 4),
-              Text(
-                isError ? '工具错误' : '工具结果',
-                style: TextStyle(
-                  color: isError ? errorColor : appColors.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+              // 添加复制按钮
+              InkWell(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: displayContent));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('工具结果已复制到剪贴板'),
+                      duration: Duration(seconds: 1),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+                borderRadius: BorderRadius.circular(4),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.copy,
+                    size: 14,
+                    color: appColors.textSecondary,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          Text(
+          SelectableText(
             displayContent,
             style: TextStyle(
               color: appColors.textSecondary,

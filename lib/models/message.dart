@@ -28,6 +28,18 @@ class MessageStats {
 
   factory MessageStats.fromResultPayload(Map<String, dynamic> payload) {
     final usage = payload['usage'] as Map<String, dynamic>?;
+
+    // 安全地转换 cost（可能是 int 或 double）
+    double? costUsd;
+    final costValue = payload['total_cost_usd'];
+    if (costValue != null) {
+      if (costValue is double) {
+        costUsd = costValue;
+      } else if (costValue is int) {
+        costUsd = costValue.toDouble();
+      }
+    }
+
     return MessageStats(
       inputTokens: usage?['input_tokens'] as int?,
       outputTokens: usage?['output_tokens'] as int?,
@@ -35,7 +47,7 @@ class MessageStats {
       cacheReadTokens: usage?['cache_read_input_tokens'] as int?,
       durationMs: payload['duration_ms'] as int? ?? 0,
       durationApiMs: payload['duration_api_ms'] as int? ?? 0,
-      costUsd: payload['total_cost_usd'] as double?,
+      costUsd: costUsd,
       numTurns: payload['num_turns'] as int? ?? 1,
     );
   }
@@ -62,6 +74,7 @@ enum ContentBlockType {
   thinking,
   toolUse,
   toolResult,
+  image,
 }
 
 class ContentBlock {
@@ -76,6 +89,11 @@ class ContentBlock {
   final dynamic content;
   final bool? isError;
 
+  // Image fields
+  final String? imageSource; // 'base64' or 'url'
+  final String? imageMediaType; // 'image/jpeg', 'image/png', 'image/gif', 'image/webp'
+  final String? imageData; // base64 encoded data or url
+
   ContentBlock({
     required this.type,
     this.text,
@@ -87,6 +105,9 @@ class ContentBlock {
     this.toolUseId,
     this.content,
     this.isError,
+    this.imageSource,
+    this.imageMediaType,
+    this.imageData,
   });
 
   factory ContentBlock.fromJson(Map<String, dynamic> json) {
@@ -106,8 +127,23 @@ class ContentBlock {
       case 'tool_result':
         type = ContentBlockType.toolResult;
         break;
+      case 'image':
+        type = ContentBlockType.image;
+        break;
       default:
         type = ContentBlockType.text;
+    }
+
+    // Parse image source if type is image
+    String? imageSource;
+    String? imageMediaType;
+    String? imageData;
+
+    if (type == ContentBlockType.image && json['source'] != null) {
+      final source = json['source'] as Map<String, dynamic>;
+      imageSource = source['type'] as String?;
+      imageMediaType = source['media_type'] as String?;
+      imageData = source['data'] as String?;
     }
 
     return ContentBlock(
@@ -121,7 +157,52 @@ class ContentBlock {
       toolUseId: json['tool_use_id'] as String?,
       content: json['content'],
       isError: json['is_error'] as bool?,
+      imageSource: imageSource,
+      imageMediaType: imageMediaType,
+      imageData: imageData,
     );
+  }
+
+  // Helper to create image block
+  factory ContentBlock.image({
+    required String base64Data,
+    required String mediaType,
+  }) {
+    return ContentBlock(
+      type: ContentBlockType.image,
+      imageSource: 'base64',
+      imageMediaType: mediaType,
+      imageData: base64Data,
+    );
+  }
+
+  // Convert to JSON for API
+  Map<String, dynamic> toJson() {
+    final json = <String, dynamic>{'type': type.name};
+
+    switch (type) {
+      case ContentBlockType.text:
+        if (text != null) json['text'] = text;
+        break;
+      case ContentBlockType.image:
+        if (imageSource != null && imageMediaType != null && imageData != null) {
+          json['source'] = {
+            'type': imageSource,
+            'media_type': imageMediaType,
+            'data': imageData,
+          };
+        }
+        break;
+      case ContentBlockType.toolUse:
+        if (id != null) json['id'] = id;
+        if (name != null) json['name'] = name;
+        if (input != null) json['input'] = input;
+        break;
+      default:
+        break;
+    }
+
+    return json;
   }
 }
 

@@ -30,7 +30,7 @@ class CodexUserSettings {
       modelReasoningEffort: 'medium',
       networkAccessEnabled: false,
       webSearchEnabled: false,
-      skipGitRepoCheck: false,
+      skipGitRepoCheck: true, // 默认跳过 Git 仓库检查
     );
   }
 
@@ -42,7 +42,7 @@ class CodexUserSettings {
       modelReasoningEffort: json['model_reasoning_effort'] as String? ?? 'medium',
       networkAccessEnabled: json['network_access_enabled'] as bool? ?? false,
       webSearchEnabled: json['web_search_enabled'] as bool? ?? false,
-      skipGitRepoCheck: json['skip_git_repo_check'] as bool? ?? false,
+      skipGitRepoCheck: json['skip_git_repo_check'] as bool? ?? true, // 默认跳过 Git 仓库检查
       model: json['model'] as String?,
       hideToolCalls: json['hide_tool_calls'] as bool? ?? false,
     );
