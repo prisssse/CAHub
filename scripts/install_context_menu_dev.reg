@@ -1,0 +1,18 @@
+Windows Registry Editor Version 5.00
+
+; 开发版本 - 使用开发路径
+; 为文件夹右键菜单添加"使用 CodeAgent Hub 打开"
+[HKEY_CLASSES_ROOT\Directory\shell\CodeAgentHub]
+@="使用 CodeAgent Hub 打开"
+"Icon"="E:\\PycharmProjects\\CodeAgentHub\\cc_mobile\\build\\windows\\x64\\runner\\Release\\cc_mobile.exe,0"
+
+[HKEY_CLASSES_ROOT\Directory\shell\CodeAgentHub\command]
+@="\"E:\\PycharmProjects\\CodeAgentHub\\cc_mobile\\build\\windows\\x64\\runner\\Release\\cc_mobile.exe\" --path \"%V\""
+
+; 为文件夹背景右键菜单添加"在此处使用 CodeAgent Hub"
+[HKEY_CLASSES_ROOT\Directory\Background\shell\CodeAgentHub]
+@="在此处使用 CodeAgent Hub"
+"Icon"="E:\\PycharmProjects\\CodeAgentHub\\cc_mobile\\build\\windows\\x64\\runner\\Release\\cc_mobile.exe,0"
+
+[HKEY_CLASSES_ROOT\Directory\Background\shell\CodeAgentHub\command]
+@="\"E:\\PycharmProjects\\CodeAgentHub\\cc_mobile\\build\\windows\\x64\\runner\\Release\\cc_mobile.exe\" --path \"%V\""

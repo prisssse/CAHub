@@ -1,5 +1,5 @@
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' show Platform, exit;
+import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'core/theme/app_theme.dart';
@@ -11,10 +11,14 @@ import 'services/codex_api_service.dart';
 import 'services/auth_service.dart';
 import 'services/config_service.dart';
 import 'services/app_settings_service.dart';
+import 'services/single_instance_service.dart';
 import 'repositories/api_project_repository.dart';
 import 'repositories/api_codex_repository.dart';
 
-void main() async {
+// 全局单实例服务
+SingleInstanceService? _singleInstanceService;
+
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // 只在桌面平台初始化 window_manager
@@ -22,11 +26,51 @@ void main() async {
     await windowManager.ensureInitialized();
   }
 
-  runApp(const MyApp());
+  // 解析启动参数，查找文件夹路径
+  String? initialPath;
+  for (int i = 0; i < args.length; i++) {
+    if (args[i] == '--path' && i + 1 < args.length) {
+      initialPath = args[i + 1];
+      break;
+    }
+  }
+
+  // 只在桌面平台的 Release 模式使用单实例功能
+  // Debug 模式下允许多实例运行，方便开发调试
+  if (!kIsWeb &&
+      (Platform.isWindows || Platform.isLinux || Platform.isMacOS) &&
+      kReleaseMode) {
+    _singleInstanceService = SingleInstanceService();
+
+    // 尝试成为主实例
+    final isMainInstance = await _singleInstanceService!.tryBecomeMainInstance();
+
+    if (!isMainInstance) {
+      // 已有实例在运行
+      if (initialPath != null) {
+        // 发送路径给已有实例
+        await _singleInstanceService!.sendPathToExistingInstance(initialPath);
+      }
+      // 退出当前进程
+      exit(0);
+    }
+  }
+
+  runApp(MyApp(
+    initialPath: initialPath,
+    singleInstanceService: _singleInstanceService,
+  ));
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+  final String? initialPath;
+  final SingleInstanceService? singleInstanceService;
+
+  const MyApp({
+    super.key,
+    this.initialPath,
+    this.singleInstanceService,
+  });
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -158,6 +202,8 @@ class _MyAppState extends State<MyApp> {
     return TabManagerScreen(
       claudeRepository: claudeRepository,
       codexRepository: codexRepository,
+      initialPath: widget.initialPath,
+      singleInstanceService: widget.singleInstanceService,
       onLogout: () {
         setState(() {});
       },

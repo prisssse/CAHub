@@ -129,6 +129,29 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     _loadCodexSettingsIfNeeded();
   }
 
+  @override
+  void didUpdateWidget(ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 检查是否切换到了不同的 session
+    // 使用对象引用比较，因为新对话的 ID 都可能是空字符串
+    if (oldWidget.session != widget.session) {
+      print('DEBUG ChatScreen: Session changed from ${oldWidget.session.id} to ${widget.session.id}');
+      _currentSession = widget.session;
+      // 清空状态
+      _currentRunId = null;
+      _isSending = false;
+      _sessionProcessing = false;
+      _lastMessageStats = null;
+      _showStats = false;
+      _currentUserMessageIndex = -1;
+      _messagesOpacity = 1.0; // 重置透明度
+      // 重新加载设置和消息
+      _loadSavedSettings();
+      _loadMessages();
+      _loadCodexSettingsIfNeeded();
+    }
+  }
+
   // 加载保存的设置
   Future<void> _loadSavedSettings() async {
     final settingsService = SessionSettingsService();
@@ -265,7 +288,13 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     // 如果session id为空，说明是新session，跳过加载消息
     if (widget.session.id.isEmpty) {
       print('DEBUG ChatScreen: Session ID is empty, skipping message load');
-      setState(() => _isLoading = false);
+      setState(() {
+        _messages.clear(); // 清空旧消息列表
+        _allMessages.clear(); // 清空所有消息
+        _hasMoreMessages = false;
+        _isLoading = false;
+        _messagesOpacity = 1.0; // 重置透明度为完全可见
+      });
       return;
     }
 
@@ -534,6 +563,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       _sessionProcessing = true; // 标记会话开始处理
       _userScrolling = false; // 重置手动滚动标志，确保新消息能自动滚动
     });
+    print('DEBUG: Added user message, total messages: ${_messages.length}, opacity: $_messagesOpacity');
     _textController.clear();
     _clearImages(); // 清空选中的图片
     _scrollToBottom();
@@ -1126,7 +1156,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           else
             Container(height: 4),
           // 持续消息状态横幅
-          if (_sessionProcessing && widget.repository is! ApiCodexRepository)
+          if (_sessionProcessing)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
@@ -1145,7 +1175,9 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Claude 正在回复中... 您可以随时补充信息或提出新问题',
+                      widget.repository is ApiCodexRepository
+                          ? 'Codex 正在回复中...'
+                          : 'Claude 正在回复中... 您可以随时补充信息或提出新问题',
                       style: TextStyle(
                         fontSize: 13,
                         color: context.appColors.textSecondary,

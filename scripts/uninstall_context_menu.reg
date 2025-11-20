@@ -1,0 +1,7 @@
+Windows Registry Editor Version 5.00
+
+; 移除文件夹右键菜单中的"使用 CodeAgent Hub 打开"
+[-HKEY_CLASSES_ROOT\Directory\shell\CodeAgentHub]
+
+; 移除文件夹背景右键菜单中的"在此处使用 CodeAgent Hub"
+[-HKEY_CLASSES_ROOT\Directory\Background\shell\CodeAgentHub]

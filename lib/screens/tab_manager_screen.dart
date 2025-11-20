@@ -1,17 +1,23 @@
+import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:window_manager/window_manager.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/platform_helper.dart';
 import '../repositories/api_codex_repository.dart';
+import '../repositories/api_session_repository.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/session_repository.dart';
 import '../repositories/codex_repository.dart';
 import '../models/project.dart';
+import '../models/session.dart';
 import '../services/app_settings_service.dart';
 import '../services/config_service.dart';
 import '../services/notification_sound_service.dart';
+import '../services/single_instance_service.dart';
 import 'chat_screen.dart';
 import 'home_screen.dart';
 import 'sessions/session_list_screen.dart';
@@ -54,6 +60,8 @@ class TabInfo {
 class TabManagerScreen extends StatefulWidget {
   final ProjectRepository claudeRepository;
   final CodexRepository codexRepository;
+  final String? initialPath; // 从命令行传入的初始文件夹路径
+  final SingleInstanceService? singleInstanceService; // 单实例服务，用于接收其他实例的路径
   final VoidCallback? onLogout;
   final Future<void> Function(String)? onApiUrlChanged;
 
@@ -61,6 +69,8 @@ class TabManagerScreen extends StatefulWidget {
     super.key,
     required this.claudeRepository,
     required this.codexRepository,
+    this.initialPath,
+    this.singleInstanceService,
     this.onLogout,
     this.onApiUrlChanged,
   });
@@ -85,6 +95,161 @@ class _TabManagerScreenState extends State<TabManagerScreen>
     );
     // 默认打开一个首页标签
     _addHomeTab();
+
+    // 如果有初始路径，自动打开对应项目
+    if (widget.initialPath != null) {
+      _handleInitialPath(widget.initialPath!);
+    }
+
+    // 监听来自其他实例的新路径请求
+    widget.singleInstanceService?.onNewPath.listen(_onNewPathFromOtherInstance);
+  }
+
+  /// 处理来自其他实例的新路径请求
+  Future<void> _onNewPathFromOtherInstance(String path) async {
+    print('TabManager: Received path from another instance: $path');
+
+    // 聚焦窗口（仅桌面平台）
+    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      try {
+        // 导入 window_manager 需要的类
+        final windowManager = WindowManager.instance;
+        await windowManager.show();
+        await windowManager.focus();
+      } catch (e) {
+        print('TabManager: Failed to focus window: $e');
+      }
+    }
+
+    // 在新标签页中打开路径
+    await _handleInitialPath(path);
+  }
+
+  // 处理从命令行传入的文件夹路径
+  Future<void> _handleInitialPath(String path) async {
+    // 等待首页标签加载完成
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    try {
+      // 从 ConfigService 获取首选后端
+      final configService = await ConfigService.getInstance();
+      final preferredBackend = configService.preferredBackend;
+
+      // 根据后端类型选择 repository
+      final dynamic projectRepository = preferredBackend == 'codex'
+          ? widget.codexRepository
+          : widget.claudeRepository;
+
+      // 创建 SessionRepository（用于 ChatScreen）
+      final dynamic sessionRepository = preferredBackend == 'codex'
+          ? ApiCodexRepository(projectRepository.apiService)
+          : ApiSessionRepository(projectRepository.apiService);
+
+      // 查找是否已有该路径的项目
+      final projects = await projectRepository.getProjects();
+      Project? existingProject;
+
+      // 查找匹配的项目
+      for (final project in projects) {
+        if (project.path == path) {
+          existingProject = project;
+          break;
+        }
+      }
+
+      if (existingProject != null) {
+        // 项目已存在，获取其会话列表
+        final sessions = await projectRepository.getProjectSessions(existingProject.id);
+
+        if (sessions.isNotEmpty) {
+          // 有会话，打开最近的会话
+          final latestSession = sessions.first;
+          _openChatFromInitialPath(latestSession, sessionRepository, existingProject.name);
+        } else {
+          // 无会话，创建新会话
+          await _createNewSessionForPath(existingProject, sessionRepository);
+        }
+      } else {
+        // 项目不存在，使用路径作为项目名创建新会话
+        final projectName = path.split(Platform.pathSeparator).last;
+        await _createNewSessionForPath(
+          Project(id: '', name: projectName, path: path, createdAt: DateTime.now()),
+          sessionRepository,
+        );
+      }
+    } catch (e) {
+      print('Error handling initial path: $e');
+    }
+  }
+
+  // 为指定路径创建新会话
+  Future<void> _createNewSessionForPath(Project project, dynamic sessionRepository) async {
+    final session = Session(
+      id: '', // 空ID，后端会创建
+      projectId: project.id,
+      title: '新对话',
+      name: project.name,
+      cwd: project.path, // Project 使用 path，Session 使用 cwd
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    _openChatFromInitialPath(session, sessionRepository, project.name);
+  }
+
+  // 打开从初始路径来的会话（在新标签页中打开）
+  void _openChatFromInitialPath(Session session, dynamic sessionRepository, String projectName) {
+    final sessionId = session.id.isEmpty ? 'new_${DateTime.now().millisecondsSinceEpoch}' : session.id;
+    final tabId = 'chat_$sessionId';
+
+    // 检查是否已经在其他标签页打开该会话
+    final existingIndex = _tabs.indexWhere(
+      (tab) => tab.id == tabId,
+    );
+
+    if (existingIndex != -1) {
+      // 切换到已存在的标签
+      _tabController.animateTo(existingIndex);
+      return;
+    }
+
+    // 创建新的TabInfo（包含ValueNotifier）
+    final newTab = TabInfo(
+      id: tabId,
+      type: TabType.chat,
+      title: projectName,
+      content: Container(), // 临时占位
+    );
+
+    // 创建带回调的 ChatScreen
+    final wrappedWidget = ChatScreen(
+      key: ValueKey(tabId),
+      session: session,
+      repository: sessionRepository,
+      onMessageComplete: () {
+        final currentTabIndex = _tabs.indexWhere((tab) => tab.id == tabId);
+        if (currentTabIndex != -1) {
+          _handleMessageComplete(currentTabIndex);
+        }
+      },
+      hasNewReplyNotifier: newTab.hasNewReplyNotifier,
+    );
+
+    // 更新 content
+    final finalTab = TabInfo(
+      id: newTab.id,
+      type: newTab.type,
+      title: newTab.title,
+      content: wrappedWidget,
+    );
+
+    // 添加新标签页
+    setState(() {
+      _tabs.add(finalTab);
+    });
+
+    // 切换到新标签页
+    _rebuildTabController(_tabs.length - 1);
   }
 
   Future<void> _addHomeTab() async {
@@ -200,6 +365,7 @@ class _TabManagerScreenState extends State<TabManagerScreen>
     final tabId = 'chat_$sessionId'; // 使用 tab ID 来查找正确的标签页
     if (chatWidget is ChatScreen) {
       wrappedWidget = ChatScreen(
+        key: ValueKey(tabId), // 添加唯一 key，确保 Flutter 正确识别不同的 ChatScreen
         session: chatWidget.session,
         repository: chatWidget.repository,
         onMessageComplete: () {
