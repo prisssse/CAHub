@@ -55,6 +55,12 @@ dependencies:
   # File picker as fallback
   file_picker: ^8.0.0+1
 
+  # Windows registry access for context menu registration
+  win32_registry: ^1.1.5
+
+  # FFI for Windows API calls (UAC elevation)
+  ffi: ^2.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

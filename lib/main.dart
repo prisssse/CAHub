@@ -12,6 +12,7 @@ import 'services/auth_service.dart';
 import 'services/config_service.dart';
 import 'services/app_settings_service.dart';
 import 'services/single_instance_service.dart';
+import 'services/windows_registry_service.dart';
 import 'repositories/api_project_repository.dart';
 import 'repositories/api_codex_repository.dart';
 
@@ -24,6 +25,15 @@ void main(List<String> args) async {
   // 只在桌面平台初始化 window_manager
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
     await windowManager.ensureInitialized();
+  }
+
+  // 检查是否是以管理员身份运行来注册右键菜单
+  if (Platform.isWindows && args.contains('--register-context-menu')) {
+    // 以管理员身份运行，执行注册操作
+    final result = await WindowsRegistryService.registerContextMenu();
+    print('Register context menu result: ${result.success ? "success" : result.message}');
+    // 注册完成后退出
+    exit(result.success ? 0 : 1);
   }
 
   // 解析启动参数，查找文件夹路径
@@ -128,11 +138,112 @@ class _MyAppState extends State<MyApp> {
 
       // 初始化标题栏颜色
       await _updateWindowTitleBarColor();
+
+      // Windows: 检查并注册右键菜单（只在 Release 模式下）
+      if (Platform.isWindows && kReleaseMode) {
+        _checkAndRegisterContextMenu();
+      }
     } catch (e) {
       print('Error initializing services: $e');
     }
     setState(() {
       _isInitializing = false;
+    });
+  }
+
+  /// 检查并注册 Windows 右键菜单
+  Future<void> _checkAndRegisterContextMenu() async {
+    // 只在 Windows 平台执行
+    if (!Platform.isWindows) return;
+
+    try {
+      final result = await WindowsRegistryService.checkAndRegister();
+
+      switch (result.status) {
+        case RegistryStatus.registered:
+        case RegistryStatus.updated:
+          print('DEBUG: ${result.message}');
+          // 注册/更新成功，显示通知
+          _showRegistryNotification(result.message, isSuccess: true);
+          break;
+
+        case RegistryStatus.alreadyRegistered:
+          print('DEBUG: ${result.message}');
+          // 已经正确注册，无需通知用户
+          break;
+
+        case RegistryStatus.needsAdmin:
+          print('DEBUG: ${result.message}');
+          // 需要管理员权限，显示对话框让用户选择
+          _showAdminPermissionDialog();
+          break;
+
+        case RegistryStatus.failed:
+        case RegistryStatus.notSupported:
+          print('DEBUG: ${result.message}');
+          break;
+      }
+    } catch (e) {
+      print('Error checking/registering context menu: $e');
+    }
+  }
+
+  /// 显示管理员权限请求对话框
+  void _showAdminPermissionDialog() {
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('需要管理员权限'),
+          content: const Text(
+            '首次运行需要管理员权限来注册右键菜单功能。\n\n'
+            '注册后，您可以在文件夹上右键选择"使用 CodeAgent Hub 打开"。\n\n'
+            '是否以管理员身份重新运行？',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('稍后再说'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                // 触发 UAC 提权
+                final success = await WindowsRegistryService.restartAsAdmin();
+                if (!success && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('无法启动管理员权限请求，您可以手动右键程序选择"以管理员身份运行"'),
+                      duration: Duration(seconds: 5),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  /// 显示注册表相关通知
+  void _showRegistryNotification(String message, {required bool isSuccess}) {
+    // 延迟显示，确保 UI 已经准备好
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            duration: const Duration(seconds: 5),
+            backgroundColor: isSuccess ? Colors.green : Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     });
   }
 

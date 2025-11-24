@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/theme/app_theme.dart';
 import '../models/codex_user_settings.dart';
 import '../repositories/api_codex_repository.dart';
@@ -7,12 +8,16 @@ class CodexSessionSettingsScreen extends StatefulWidget {
   final CodexUserSettings settings;
   final ApiCodexRepository repository;
   final Function(CodexUserSettings) onSave;
+  final String? sessionId; // 会话 ID（用于显示）
+  final String? cwd; // 工作目录（用于显示）
 
   const CodexSessionSettingsScreen({
     super.key,
     required this.settings,
     required this.repository,
     required this.onSave,
+    this.sessionId,
+    this.cwd,
   });
 
   @override
@@ -113,6 +118,11 @@ class _CodexSessionSettingsScreenState extends State<CodexSessionSettingsScreen>
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // 会话信息部分
+          if (widget.sessionId != null || widget.cwd != null) ...[
+            _buildSessionInfoSection(cardColor, dividerColor, primaryColor, appColors),
+            const SizedBox(height: 16),
+          ],
           _buildSettingCard(
             title: '权限策略',
             subtitle: _getApprovalPolicyLabel(_currentSettings.approvalPolicy),
@@ -344,6 +354,109 @@ class _CodexSessionSettingsScreenState extends State<CodexSessionSettingsScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSessionInfoSection(Color cardColor, Color dividerColor, Color primaryColor, dynamic appColors) {
+    final textPrimary = Theme.of(context).colorScheme.onSurface;
+    final textSecondary = appColors.textSecondary;
+    final textTertiary = appColors.textTertiary;
+
+    return Card(
+      color: cardColor,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: dividerColor, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              '会话信息',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: textSecondary,
+              ),
+            ),
+          ),
+          if (widget.sessionId != null) ...[
+            ListTile(
+              dense: true,
+              title: Text(
+                '会话 ID',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: textPrimary,
+                ),
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  widget.sessionId!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: textSecondary,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+              trailing: IconButton(
+                icon: Icon(
+                  Icons.copy,
+                  color: textTertiary,
+                  size: 18,
+                ),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: widget.sessionId!));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('已复制会话 ID'),
+                      backgroundColor: primaryColor,
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 1),
+                    ),
+                  );
+                },
+                tooltip: '复制',
+              ),
+            ),
+          ],
+          if (widget.sessionId != null && widget.cwd != null)
+            Divider(height: 1, color: dividerColor),
+          if (widget.cwd != null) ...[
+            ListTile(
+              dense: true,
+              title: Text(
+                '工作目录',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: textPrimary,
+                ),
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  widget.cwd!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: textSecondary,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+              trailing: Icon(
+                Icons.lock_outline,
+                color: textTertiary,
+                size: 18,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

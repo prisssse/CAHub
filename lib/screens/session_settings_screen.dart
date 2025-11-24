@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/theme/app_theme.dart';
 import '../models/session_settings.dart';
 import 'settings/settings_screen.dart' show AdvancedOptionsEditor;
@@ -111,33 +112,79 @@ class _SessionSettingsScreenState extends State<SessionSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildSectionTitle('工作目录', textSecondary),
+          _buildSectionTitle('会话信息', textSecondary),
           _buildInfoCard(
             cardColor: cardColor,
             dividerColor: dividerColor,
-            child: ListTile(
-              title: Text(
-                '当前目录',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: textPrimary,
-                ),
-              ),
-              subtitle: Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  widget.settings.cwd,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: textSecondary,
-                    fontFamily: 'monospace',
+            child: Column(
+              children: [
+                // 会话 ID
+                ListTile(
+                  title: Text(
+                    '会话 ID',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: textPrimary,
+                    ),
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      widget.settings.sessionId,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: textSecondary,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  trailing: IconButton(
+                    icon: Icon(
+                      Icons.copy,
+                      color: textTertiary,
+                      size: 20,
+                    ),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: widget.settings.sessionId));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('已复制会话 ID'),
+                          backgroundColor: primaryColor,
+                          behavior: SnackBarBehavior.floating,
+                          duration: const Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                    tooltip: '复制',
                   ),
                 ),
-              ),
-              trailing: Icon(
-                Icons.lock_outline,
-                color: textTertiary,
-              ),
+                Divider(height: 1, color: dividerColor),
+                // 工作目录
+                ListTile(
+                  title: Text(
+                    '工作目录',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: textPrimary,
+                    ),
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      widget.settings.cwd,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: textSecondary,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  trailing: Icon(
+                    Icons.lock_outline,
+                    color: textTertiary,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 24),

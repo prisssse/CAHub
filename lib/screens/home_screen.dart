@@ -101,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onOpenChat: widget.onOpenChat,
             sharedMode: _currentMode, // 传递共享模式
             onModeChanged: _onModeChanged, // 传递模式切换回调
+            onLogout: widget.onLogout, // 传递退出登录回调
           ),
         ],
       ),

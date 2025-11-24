@@ -13,6 +13,7 @@ import '../home_screen.dart';
 import '../../services/api_service.dart';
 import '../../services/app_settings_service.dart';
 import '../../services/config_service.dart';
+import '../../services/shared_project_data_service.dart';
 
 class ProjectListScreen extends StatefulWidget {
   final ProjectRepository claudeRepository;
@@ -53,8 +54,9 @@ class ProjectListScreen extends StatefulWidget {
 class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKeepAliveClientMixin {
   List<Project> _projects = [];
   bool _isLoading = false;
-  DateTime? _lastRefreshTime; // 上次刷新时间
-  static const Duration _autoRefreshInterval = Duration(minutes: 1); // 自动刷新间隔
+
+  // 共享数据服务
+  SharedProjectDataService get _dataService => SharedProjectDataService.instance;
 
   @override
   bool get wantKeepAlive => true; // 保持状态
@@ -62,14 +64,65 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
   // 获取当前模式（优先使用共享模式）
   AgentMode get _currentMode => widget.sharedMode ?? AgentMode.claudeCode;
 
+  // 是否为 Codex 模式
+  bool get _isCodex => _currentMode == AgentMode.codex;
+
   @override
   void initState() {
     super.initState();
-    // 如果没有共享模式，则加载偏好设置
-    if (widget.sharedMode == null) {
-      _loadPreferredBackend();
-    } else {
-      _loadProjects();
+    // 监听共享数据变化
+    _setupDataListeners();
+    // 初始加载
+    _loadProjects();
+  }
+
+  @override
+  void dispose() {
+    // 移除监听器
+    _dataService.claudeProjectsNotifier.removeListener(_onClaudeProjectsChanged);
+    _dataService.codexProjectsNotifier.removeListener(_onCodexProjectsChanged);
+    _dataService.claudeLoadingNotifier.removeListener(_onLoadingChanged);
+    _dataService.codexLoadingNotifier.removeListener(_onLoadingChanged);
+    super.dispose();
+  }
+
+  /// 设置数据监听器
+  void _setupDataListeners() {
+    // 监听 Claude 项目变化
+    _dataService.claudeProjectsNotifier.addListener(_onClaudeProjectsChanged);
+    // 监听 Codex 项目变化
+    _dataService.codexProjectsNotifier.addListener(_onCodexProjectsChanged);
+    // 监听加载状态
+    _dataService.claudeLoadingNotifier.addListener(_onLoadingChanged);
+    _dataService.codexLoadingNotifier.addListener(_onLoadingChanged);
+  }
+
+  void _onClaudeProjectsChanged() {
+    if (!_isCodex && mounted) {
+      setState(() {
+        _projects = _dataService.getProjects(isCodex: false);
+      });
+    }
+  }
+
+  void _onCodexProjectsChanged() {
+    if (_isCodex && mounted) {
+      setState(() {
+        _projects = _dataService.getProjects(isCodex: true);
+      });
+    }
+  }
+
+  void _onLoadingChanged() {
+    if (mounted) {
+      final isLoading = _isCodex
+          ? _dataService.codexLoadingNotifier.value
+          : _dataService.claudeLoadingNotifier.value;
+      if (_isLoading != isLoading) {
+        setState(() {
+          _isLoading = isLoading;
+        });
+      }
     }
   }
 
@@ -77,51 +130,40 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
   void didUpdateWidget(ProjectListScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // 如果共享模式变化，重新加载项目
+    // 如果共享模式变化，从缓存加载对应的项目
     if (oldWidget.sharedMode != widget.sharedMode && widget.sharedMode != null) {
-      _loadProjects();
+      _loadProjectsFromCache();
     }
-
-    _checkAndAutoRefresh();
   }
 
-  // 检查并自动刷新
-  void _checkAndAutoRefresh() {
-    if (_lastRefreshTime == null) {
-      return; // 首次加载，不需要自动刷新
-    }
-
-    final now = DateTime.now();
-    final timeSinceLastRefresh = now.difference(_lastRefreshTime!);
-
-    if (timeSinceLastRefresh >= _autoRefreshInterval) {
-      print('DEBUG: Auto-refreshing projects (last refresh: ${timeSinceLastRefresh.inSeconds}s ago)');
+  /// 从缓存加载项目（切换模式时使用）
+  void _loadProjectsFromCache() {
+    final cachedProjects = _dataService.getProjects(isCodex: _isCodex);
+    if (cachedProjects.isNotEmpty) {
+      setState(() {
+        _projects = cachedProjects;
+      });
+    } else {
+      // 缓存为空，需要刷新
       _loadProjects();
     }
   }
 
-  // 从ConfigService加载用户上次选择的后端（仅在没有共享模式时使用）
-  Future<void> _loadPreferredBackend() async {
-    // 这个方法只在没有共享模式管理时调用
-    // 直接加载项目即可，因为 _currentMode getter 会处理默认值
-    _loadProjects();
-  }
-
+  /// 加载项目（使用共享数据服务）
   Future<void> _loadProjects() async {
-    setState(() => _isLoading = true);
-    try {
-      // 根据当前模式加载项目
-      final projects = _currentMode == AgentMode.claudeCode
-          ? await widget.claudeRepository.getProjects()
-          : await widget.codexRepository.getProjects();
+    // 使用共享数据服务加载，不强制刷新（会检查缓存）
+    final projects = await _dataService.refresh(isCodex: _isCodex, force: false);
+    if (mounted) {
       setState(() {
         _projects = projects;
-        _isLoading = false;
-        _lastRefreshTime = DateTime.now(); // 记录刷新时间
       });
-    } catch (e) {
-      setState(() => _isLoading = false);
     }
+  }
+
+  /// 手动刷新项目（强制刷新）
+  Future<void> _manualRefresh() async {
+    // 强制刷新，所有监听者都会收到更新
+    await _dataService.manualRefresh(isCodex: _isCodex);
   }
 
   // 切换模式
@@ -143,23 +185,32 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
   }
 
   Future<void> _reloadSessionsFromDisk() async {
-    // 注意：reloadSessions 目前只有 Claude Code 支持
+    // 注意：reloadSessions 从磁盘加载功能目前只有 Claude Code 支持
+    // Codex 模式下，此按钮只刷新项目列表
     if (_currentMode == AgentMode.codex) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Codex 模式暂不支持从磁盘加载会话'),
-          behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.only(
-            top: 16,
-            left: 16,
-            right: 16,
-            bottom: MediaQuery.of(context).size.height - 100,
+      // Codex 模式：强制刷新项目列表（共享到所有面板）
+      await _manualRefresh();
+
+      if (mounted) {
+        final primaryColor = Theme.of(context).colorScheme.primary;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('已刷新项目列表'),
+            backgroundColor: primaryColor,
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              top: 16,
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).size.height - 100,
+            ),
           ),
-        ),
-      );
+        );
+      }
       return;
     }
 
+    // Claude Code 模式：从磁盘加载会话
     try {
       // 显示加载对话框
       if (mounted) {
@@ -214,8 +265,8 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
         );
       }
 
-      // 重新加载项目列表
-      _loadProjects();
+      // 重新加载项目列表（强制刷新，共享到所有面板）
+      await _manualRefresh();
     } catch (e) {
       if (mounted) {
         Navigator.pop(context); // 关闭加载对话框
@@ -449,11 +500,18 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
           title: _buildBackendSelector(primaryColor, cardColor, backgroundColor),
           actions: [
           IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: _addNewProject,
+            tooltip: _currentMode == AgentMode.claudeCode
+                ? '新建对话'
+                : '新建项目',
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _reloadSessionsFromDisk,
             tooltip: _currentMode == AgentMode.claudeCode
                 ? '从 Claude Code 加载会话'
-                : '从 Codex 加载会话',
+                : '刷新项目列表',
           ),
           IconButton(
             icon: const Icon(Icons.settings),
@@ -469,18 +527,14 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
                 ),
               );
             },
+            tooltip: '设置',
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addNewProject,
-        backgroundColor: primaryColor,
-        child: const Icon(Icons.add),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadProjects,
+              onRefresh: _manualRefresh,
               child: _projects.isEmpty
                   ? Center(
                       child: Column(

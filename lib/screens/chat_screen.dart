@@ -164,6 +164,21 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         setState(() {
           _codexSettings = savedSettings;
         });
+        print('DEBUG: Loaded Codex settings from local storage for session ${widget.session.id}');
+      } else {
+        // 如果没有保存的设置，使用全局默认 Codex 设置
+        final appSettingsService = AppSettingsService();
+        await appSettingsService.initialize();
+        final codexRepo = widget.repository as ApiCodexRepository;
+        final userId = codexRepo.apiService.authService?.username ?? 'default';
+        final defaultSettings = appSettingsService.getOrCreateCodexSettings(userId);
+
+        if (mounted) {
+          setState(() {
+            _codexSettings = defaultSettings;
+          });
+        }
+        print('DEBUG: Using global default Codex settings for session ${widget.session.id}: skipGitRepoCheck=${defaultSettings.skipGitRepoCheck}');
       }
     } else {
       // 加载 Claude Code 设置
@@ -189,33 +204,11 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
 
   Future<void> _loadCodexSettingsIfNeeded() async {
     if (widget.repository is ApiCodexRepository) {
-      // 如果已经从本地存储加载了设置，则不再从后端加载
-      if (_codexSettings != null) {
-        print('DEBUG: Codex settings already loaded from local storage, skipping backend load');
-        return;
-      }
-
-      try {
-        final codexRepo = widget.repository as ApiCodexRepository;
-        // 获取当前登录的用户ID
-        final userId = codexRepo.apiService.authService?.username ?? 'default';
-        final settings = await codexRepo.getUserSettings(userId);
-        if (mounted) {
-          setState(() {
-            _codexSettings = settings;
-          });
-        }
-      } catch (e) {
-        print('DEBUG: Failed to load Codex settings: $e');
-        // 如果加载失败，使用默认设置
-        final codexRepo = widget.repository as ApiCodexRepository;
-        final userId = codexRepo.apiService.authService?.username ?? 'default';
-        if (mounted) {
-          setState(() {
-            _codexSettings = CodexUserSettings.defaults(userId);
-          });
-        }
-      }
+      // 注意：这个方法现在的作用是从后端 API 同步用户的全局设置
+      // _loadSavedSettings() 已经加载了本地设置或全局默认设置
+      // 这里我们不再从后端重新加载，避免覆盖用户在全局设置中的配置
+      // 后端的设置应该通过全局设置界面同步到 AppSettingsService
+      print('DEBUG: Codex settings loaded from local/global storage, skipping backend API load');
     }
   }
 
@@ -288,6 +281,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     // 如果session id为空，说明是新session，跳过加载消息
     if (widget.session.id.isEmpty) {
       print('DEBUG ChatScreen: Session ID is empty, skipping message load');
+      if (!mounted) return;
       setState(() {
         _messages.clear(); // 清空旧消息列表
         _allMessages.clear(); // 清空所有消息
@@ -299,10 +293,14 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     }
 
     print('DEBUG ChatScreen: Loading messages for session ${widget.session.id}');
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final messages = await widget.repository.getSessionMessages(widget.session.id);
       print('DEBUG ChatScreen: Loaded ${messages.length} messages');
+
+      // 检查组件是否还在树中
+      if (!mounted) return;
 
       // 保存所有消息
       _allMessages = messages;
@@ -324,6 +322,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
 
       // 确保在消息加载后滚动到底部，使用 jumpTo 直接跳转
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         _scrollToBottomImmediate();
         // 触发淡入动画
         Future.delayed(const Duration(milliseconds: 50), () {
@@ -342,13 +341,14 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       });
     } catch (e) {
       print('DEBUG ChatScreen: Error loading messages: $e');
+      if (!mounted) return;
       setState(() => _isLoading = false);
     }
   }
 
   // 加载更多历史消息（当用户滚动到顶部时触发）
   void _loadMoreMessages() {
-    if (_isLoadingMore || !_hasMoreMessages) return;
+    if (_isLoadingMore || !_hasMoreMessages || !mounted) return;
 
     setState(() => _isLoadingMore = true);
 
@@ -581,11 +581,44 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       if (widget.repository is ApiCodexRepository) {
         // Codex 使用 codexSettings (暂不支持图片)
         final codexRepo = widget.repository as ApiCodexRepository;
+
+        // 确保有 Codex 设置，如果没有则使用默认设置
+        CodexUserSettings settings = _codexSettings ?? CodexUserSettings.defaults(
+          codexRepo.apiService.authService?.username ?? 'default'
+        );
+
+        // 检查是否禁用了 Git 仓库检查跳过
+        if (!settings.skipGitRepoCheck) {
+          // 显示错误提示，不发送消息
+          if (mounted) {
+            setState(() {
+              _isSending = false;
+              _sessionProcessing = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('发送失败：未开启"跳过 Git 检查"选项。\n请在 Codex 设置中启用此选项后重试。'),
+                duration: const Duration(seconds: 5),
+                behavior: SnackBarBehavior.floating,
+                margin: EdgeInsets.only(
+                  top: 16,
+                  left: 16,
+                  right: 16,
+                  bottom: MediaQuery.of(context).size.height - 100,
+                ),
+              ),
+            );
+          }
+          return; // 不继续发送消息
+        }
+
+        print('DEBUG: Sending Codex message with settings: skipGitRepoCheck=${settings.skipGitRepoCheck}, approvalPolicy=${settings.approvalPolicy}, sandboxMode=${settings.sandboxMode}');
+
         eventStream = codexRepo.sendMessageStream(
           sessionId: sessionIdToUse,
           content: text,
           cwd: _currentSession.cwd,
-          codexSettings: _codexSettings,
+          codexSettings: settings,
         );
       } else {
         // Claude Code - 支持图片，发送 contentBlocks
@@ -891,6 +924,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
           builder: (_) => CodexSessionSettingsScreen(
             settings: _codexSettings!,
             repository: widget.repository as ApiCodexRepository,
+            sessionId: _currentSession.id.isNotEmpty ? _currentSession.id : null,
+            cwd: _currentSession.cwd,
             onSave: (newSettings) async {
               print('DEBUG ChatScreen._openSettings: Codex settings saved: $newSettings');
               // 保存到本地持久化存储

@@ -7,8 +7,10 @@ import '../repositories/api_session_repository.dart';
 import '../repositories/api_codex_repository.dart';
 import '../services/app_settings_service.dart';
 import '../services/config_service.dart';
+import '../services/shared_project_data_service.dart';
 import 'tab_navigator_screen.dart';
 import 'chat_screen.dart';
+import 'settings/settings_screen.dart';
 
 class RecentSessionsScreen extends StatefulWidget {
   final ProjectRepository claudeRepository;
@@ -20,6 +22,7 @@ class RecentSessionsScreen extends StatefulWidget {
   })? onOpenChat;
   final AgentMode? sharedMode; // 共享的模式状态
   final Function(AgentMode)? onModeChanged; // 模式切换回调
+  final VoidCallback? onLogout; // 退出登录回调
 
   const RecentSessionsScreen({
     super.key,
@@ -28,6 +31,7 @@ class RecentSessionsScreen extends StatefulWidget {
     this.onOpenChat,
     this.sharedMode,
     this.onModeChanged,
+    this.onLogout,
   });
 
   @override
@@ -37,15 +41,15 @@ class RecentSessionsScreen extends StatefulWidget {
 class _RecentSessionsScreenState extends State<RecentSessionsScreen> with AutomaticKeepAliveClientMixin {
   List<Session> _recentSessions = [];
   bool _isLoading = false;
-  DateTime? _lastRefreshTime; // 上次刷新时间
-  DateTime? _lastLoadRequestTime; // 上次加载请求时间（用于防抖）
-  static const Duration _autoRefreshInterval = Duration(minutes: 3); // 自动刷新间隔改为3分钟
-  static const Duration _debounceInterval = Duration(seconds: 3); // 防抖间隔3秒
+  String? _error;
   static const int _pageSize = 50; // 每页加载50条
   bool _hasMore = true; // 是否还有更多数据
 
   @override
   bool get wantKeepAlive => true; // 保持状态
+
+  // 获取共享数据服务
+  SharedProjectDataService get _dataService => SharedProjectDataService.instance;
 
   // 获取当前模式（优先使用共享模式）
   AgentMode get _currentMode => widget.sharedMode ?? AgentMode.claudeCode;
@@ -58,7 +62,78 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
   @override
   void initState() {
     super.initState();
+    _setupDataListeners();
     _loadRecentSessions();
+  }
+
+  @override
+  void dispose() {
+    _removeDataListeners();
+    super.dispose();
+  }
+
+  // 设置数据监听器
+  void _setupDataListeners() {
+    _dataService.claudeRecentSessionsNotifier.addListener(_onClaudeSessionsChanged);
+    _dataService.codexRecentSessionsNotifier.addListener(_onCodexSessionsChanged);
+    _dataService.claudeSessionsLoadingNotifier.addListener(_onLoadingChanged);
+    _dataService.codexSessionsLoadingNotifier.addListener(_onLoadingChanged);
+    _dataService.claudeSessionsErrorNotifier.addListener(_onErrorChanged);
+    _dataService.codexSessionsErrorNotifier.addListener(_onErrorChanged);
+  }
+
+  // 移除数据监听器
+  void _removeDataListeners() {
+    _dataService.claudeRecentSessionsNotifier.removeListener(_onClaudeSessionsChanged);
+    _dataService.codexRecentSessionsNotifier.removeListener(_onCodexSessionsChanged);
+    _dataService.claudeSessionsLoadingNotifier.removeListener(_onLoadingChanged);
+    _dataService.codexSessionsLoadingNotifier.removeListener(_onLoadingChanged);
+    _dataService.claudeSessionsErrorNotifier.removeListener(_onErrorChanged);
+    _dataService.codexSessionsErrorNotifier.removeListener(_onErrorChanged);
+  }
+
+  // Claude 对话数据变化
+  void _onClaudeSessionsChanged() {
+    if (_currentMode == AgentMode.claudeCode && mounted) {
+      setState(() {
+        _recentSessions = _dataService.claudeRecentSessionsNotifier.value;
+      });
+    }
+  }
+
+  // Codex 对话数据变化
+  void _onCodexSessionsChanged() {
+    if (_currentMode == AgentMode.codex && mounted) {
+      setState(() {
+        _recentSessions = _dataService.codexRecentSessionsNotifier.value;
+      });
+    }
+  }
+
+  // 加载状态变化
+  void _onLoadingChanged() {
+    if (!mounted) return;
+    final isLoading = _currentMode == AgentMode.claudeCode
+        ? _dataService.claudeSessionsLoadingNotifier.value
+        : _dataService.codexSessionsLoadingNotifier.value;
+    if (_isLoading != isLoading) {
+      setState(() {
+        _isLoading = isLoading;
+      });
+    }
+  }
+
+  // 错误状态变化
+  void _onErrorChanged() {
+    if (!mounted) return;
+    final error = _currentMode == AgentMode.claudeCode
+        ? _dataService.claudeSessionsErrorNotifier.value
+        : _dataService.codexSessionsErrorNotifier.value;
+    if (_error != error) {
+      setState(() {
+        _error = error;
+      });
+    }
   }
 
   @override
@@ -69,71 +144,18 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
     if (oldWidget.sharedMode != widget.sharedMode && widget.sharedMode != null) {
       _loadRecentSessions();
     }
-
-    _checkAndAutoRefresh();
   }
 
-  // 检查并自动刷新
-  void _checkAndAutoRefresh() {
-    if (_lastRefreshTime == null) {
-      return; // 首次加载，不需要自动刷新
-    }
-
-    final now = DateTime.now();
-    final timeSinceLastRefresh = now.difference(_lastRefreshTime!);
-
-    if (timeSinceLastRefresh >= _autoRefreshInterval) {
-      print('DEBUG: Auto-refreshing recent sessions (last refresh: ${timeSinceLastRefresh.inSeconds}s ago)');
-      _loadRecentSessions();
-    }
-  }
-
-  // 防抖加载会话
+  // 加载会话（使用共享数据服务）
   Future<void> _loadRecentSessions({bool forceRefresh = false}) async {
     if (!mounted) return;
 
-    // 防抖检查：如果不是强制刷新，检查距离上次请求是否小于防抖间隔
-    final now = DateTime.now();
-    if (!forceRefresh && _lastLoadRequestTime != null) {
-      final timeSinceLastRequest = now.difference(_lastLoadRequestTime!);
-      if (timeSinceLastRequest < _debounceInterval) {
-        print('DEBUG: Debouncing refresh request (${timeSinceLastRequest.inMilliseconds}ms since last request)');
-        return;
-      }
-    }
-
-    _lastLoadRequestTime = now;
-    setState(() => _isLoading = true);
-
-    try {
-      // 获取所有项目
-      final projects = await _currentRepository.getProjects();
-
-      // 获取所有项目的会话
-      final allSessions = <Session>[];
-      for (var project in projects) {
-        final sessions = await _currentRepository.getProjectSessions(project.id);
-        allSessions.addAll(sessions);
-      }
-
-      // 按 updatedAt 降序排序
-      allSessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-
-      if (!mounted) return;
-      setState(() {
-        // 只显示前 _pageSize 条
-        _recentSessions = allSessions.take(_pageSize).toList();
-        _hasMore = allSessions.length > _pageSize;
-        _isLoading = false;
-        _lastRefreshTime = DateTime.now(); // 记录刷新时间
-      });
-
-      print('DEBUG: Loaded ${_recentSessions.length} sessions (total: ${allSessions.length}, hasMore: $_hasMore)');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      print('ERROR: Failed to load sessions: $e');
-    }
+    final isCodex = _currentMode == AgentMode.codex;
+    await _dataService.refreshRecentSessions(
+      isCodex: isCodex,
+      force: forceRefresh,
+      limit: _pageSize,
+    );
   }
 
   // 加载更多会话
@@ -293,6 +315,34 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
       backgroundColor: backgroundColor,
       appBar: AppBar(
         title: _buildBackendSelector(primaryColor, cardColor, backgroundColor),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: _addNewSession,
+            tooltip: '新建对话',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => _loadRecentSessions(forceRefresh: true),
+            tooltip: '刷新最近对话',
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SettingsScreen(
+                    claudeRepository: widget.claudeRepository,
+                    codexRepository: widget.codexRepository,
+                    onLogout: widget.onLogout,
+                  ),
+                ),
+              );
+            },
+            tooltip: '设置',
+          ),
+        ],
       ),
       body: _isLoading && _recentSessions.isEmpty
           ? const Center(child: CircularProgressIndicator())
@@ -492,6 +542,95 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
     if (diff.inDays == 1) return '昨天';
     if (diff.inDays < 7) return '${diff.inDays}天前';
     return '${time.year}/${time.month}/${time.day}';
+  }
+
+  // 新建对话
+  Future<void> _addNewSession() async {
+    final pathController = TextEditingController(text: 'C:\\Users');
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final appColors = context.appColors;
+        final primaryColor = Theme.of(context).colorScheme.primary;
+
+        return AlertDialog(
+          title: const Text('新建对话'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: pathController,
+                decoration: const InputDecoration(
+                  labelText: '项目路径',
+                  hintText: '输入项目目录路径',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '创建后将直接进入对话界面',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: appColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (pathController.text.trim().isNotEmpty) {
+                  Navigator.pop(context, pathController.text.trim());
+                }
+              },
+              child: Text('创建', style: TextStyle(color: primaryColor)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != null && mounted) {
+      _openNewSessionChat(result);
+    }
+  }
+
+  void _openNewSessionChat(String cwd) {
+    // 创建一个临时session（没有id，表示尚未创建）
+    final tempSession = Session(
+      id: '', // 空id表示还没有创建session
+      projectId: cwd,
+      title: '新对话',
+      name: '新对话',
+      cwd: cwd,
+      messageCount: 0,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    // 根据当前模式选择 repository
+    final apiService = _currentMode == AgentMode.claudeCode
+        ? widget.claudeRepository.apiService
+        : widget.codexRepository.apiService;
+    final dynamic sessionRepository = _currentMode == AgentMode.claudeCode
+        ? ApiSessionRepository(apiService)
+        : ApiCodexRepository(apiService);
+
+    if (widget.onOpenChat != null) {
+      // 使用回调在新标签页打开
+      widget.onOpenChat!(
+        sessionId: 'new_${DateTime.now().millisecondsSinceEpoch}',
+        sessionName: '新对话 - ${cwd.split('\\').last}',
+        chatWidget: ChatScreen(
+          session: tempSession,
+          repository: sessionRepository,
+        ),
+      );
+    }
   }
 
   // 构建后端选择器
