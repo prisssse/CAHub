@@ -1827,6 +1827,10 @@ class _AddTabButtonState extends State<_AddTabButton> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // 使用更明显的颜色，而不是 dividerColor
+    final iconColor = isDark ? Colors.white70 : Colors.black54;
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
@@ -1834,7 +1838,7 @@ class _AddTabButtonState extends State<_AddTabButton> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedOpacity(
-          opacity: _isHovered ? 1.0 : 0.3,
+          opacity: _isHovered ? 1.0 : 0.5, // 默认透明度从 0.3 提高到 0.5
           duration: const Duration(milliseconds: 150),
           child: Container(
             height: 48,
@@ -1843,7 +1847,7 @@ class _AddTabButtonState extends State<_AddTabButton> {
             child: Icon(
               Icons.add,
               size: 18,
-              color: widget.dividerColor,
+              color: iconColor,
             ),
           ),
         ),
