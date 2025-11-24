@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
+import '../core/theme/panel_theme.dart';
 import '../models/session.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/codex_repository.dart';
@@ -309,7 +310,7 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
     final errorColor = Theme.of(context).colorScheme.error;
     final dividerColor = Theme.of(context).dividerColor;
     final cardColor = Theme.of(context).cardColor;
-    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+    final backgroundColor = PanelTheme.backgroundColor(context);
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -507,7 +508,7 @@ class _RecentSessionsScreenState extends State<RecentSessionsScreen> with Automa
 
   Widget _buildInfoChip({required IconData icon, required String label}) {
     final appColors = context.appColors;
-    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+    final backgroundColor = PanelTheme.backgroundColor(context);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

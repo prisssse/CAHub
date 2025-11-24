@@ -152,9 +152,11 @@ flutter run -d windows  # 或 macos / linux
 **构建发行版**
 
 ```bash
-# Windows
+
+
+# 或手动构建
 flutter build windows --release
-# 产物: build/windows/x64/runner/Release/
+# 然后手动复制 scripts 文件夹到 build/windows/x64/runner/Release/
 
 # macOS
 flutter build macos --release
@@ -187,12 +189,16 @@ flutter build ios --release
 
 Windows 用户可以安装右键菜单集成，实现从任意文件夹快速打开对话：
 
-1. 进入 `scripts` 目录
-2. 右键点击 `install_context_menu.reg`，选择"合并"
-3. 之后在任意文件夹上右键，选择"使用 CodeAgent Hub 打开"
-4. 应用会自动启动并打开该文件夹的对话
+#### 使用
 
-详细说明见 `scripts/README.md`
+安装后，在任意文件夹：
+- **右键文件夹**：选择"使用 CodeAgent Hub 打开"
+- **在文件夹内空白处右键**：选择"在此处使用 CodeAgent Hub"
+
+应用会自动：
+- 如果应用未运行，启动并打开对话
+- 如果应用已运行，在现有窗口的新标签页中打开对话（单实例功能）
+
 
 ## 常见问题
 

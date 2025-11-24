@@ -42,8 +42,10 @@ class WindowsRegistryService {
         path: '$_directoryShellPath\\$_menuName',
       );
       key.close();
+      print('DEBUG Registry: Context menu is registered');
       return true;
     } catch (e) {
+      print('DEBUG Registry: Context menu NOT registered - $e');
       return false;
     }
   }
@@ -65,11 +67,15 @@ class WindowsRegistryService {
         // 从命令行提取 exe 路径: "C:\path\to\exe.exe" --path "%V"
         final match = RegExp(r'^"([^"]+)"').firstMatch(value);
         if (match != null) {
-          return match.group(1);
+          final path = match.group(1);
+          print('DEBUG Registry: Registered exe path: $path');
+          return path;
         }
       }
+      print('DEBUG Registry: No registered exe path found');
       return null;
     } catch (e) {
+      print('DEBUG Registry: Error getting registered path - $e');
       return null;
     }
   }
@@ -82,14 +88,25 @@ class WindowsRegistryService {
   /// 检查注册的路径是否与当前路径匹配
   static Future<bool> isPathCorrect() async {
     final registeredPath = await getRegisteredExePath();
-    if (registeredPath == null) return false;
-
     final currentPath = getCurrentExePath();
-    return registeredPath.toLowerCase() == currentPath.toLowerCase();
+
+    print('DEBUG Registry: Checking path correctness');
+    print('DEBUG Registry: - Registered: $registeredPath');
+    print('DEBUG Registry: - Current: $currentPath');
+
+    if (registeredPath == null) {
+      print('DEBUG Registry: Path check failed - no registered path');
+      return false;
+    }
+
+    final isCorrect = registeredPath.toLowerCase() == currentPath.toLowerCase();
+    print('DEBUG Registry: Path is ${isCorrect ? "CORRECT" : "WRONG"}');
+    return isCorrect;
   }
 
   /// 注册右键菜单（需要管理员权限）
   static Future<RegistryResult> registerContextMenu() async {
+    print('DEBUG Registry: registerContextMenu called');
     if (!Platform.isWindows) {
       return RegistryResult(
         success: false,
@@ -98,35 +115,43 @@ class WindowsRegistryService {
     }
 
     final exePath = getCurrentExePath();
+    print('DEBUG Registry: Will register with exe path: $exePath');
 
     try {
       // 注册文件夹右键菜单
+      print('DEBUG Registry: Registering directory shell path...');
       await _registerMenuForPath(
         '$_directoryShellPath\\$_menuName',
         exePath,
       );
 
       // 注册文件夹空白处右键菜单
+      print('DEBUG Registry: Registering directory background shell path...');
       await _registerMenuForPath(
         '$_directoryBackgroundShellPath\\$_menuName',
         exePath,
       );
 
+      print('DEBUG Registry: Registration successful!');
       return RegistryResult(
         success: true,
         message: '右键菜单注册成功',
       );
     } catch (e) {
       // 检查是否是权限拒绝错误
+      print('DEBUG Registry: Registration threw exception: $e');
       final errorStr = e.toString().toLowerCase();
+      print('DEBUG Registry: Error string (lowercase): $errorStr');
       if (errorStr.contains('access') || errorStr.contains('denied') ||
           errorStr.contains('0x80070005') || errorStr.contains('permission')) {
+        print('DEBUG Registry: Detected permission error, setting needsAdmin=true');
         return RegistryResult(
           success: false,
           message: '需要管理员权限才能注册右键菜单',
           needsAdmin: true,
         );
       }
+      print('DEBUG Registry: Non-permission error');
       return RegistryResult(
         success: false,
         message: '注册失败: $e',
@@ -213,7 +238,10 @@ class WindowsRegistryService {
   /// 检查并自动注册/更新右键菜单
   /// 返回操作结果，如果需要管理员权限会提示用户
   static Future<RegistryCheckResult> checkAndRegister() async {
+    print('DEBUG Registry: ========== checkAndRegister START ==========');
+
     if (!Platform.isWindows) {
+      print('DEBUG Registry: Not Windows platform, skipping');
       return RegistryCheckResult(
         status: RegistryStatus.notSupported,
         message: '此功能仅支持 Windows 系统',
@@ -221,16 +249,20 @@ class WindowsRegistryService {
     }
 
     final isRegistered = await isContextMenuRegistered();
+    print('DEBUG Registry: isRegistered = $isRegistered');
 
     if (!isRegistered) {
       // 未注册，尝试注册
+      print('DEBUG Registry: Not registered, attempting to register...');
       final result = await registerContextMenu();
+      print('DEBUG Registry: Register result - success: ${result.success}, needsAdmin: ${result.needsAdmin}, message: ${result.message}');
       if (result.success) {
         return RegistryCheckResult(
           status: RegistryStatus.registered,
           message: '已自动注册右键菜单',
         );
       } else if (result.needsAdmin) {
+        print('DEBUG Registry: Returning needsAdmin status');
         return RegistryCheckResult(
           status: RegistryStatus.needsAdmin,
           message: '首次运行需要管理员权限来注册右键菜单',
@@ -244,16 +276,22 @@ class WindowsRegistryService {
     }
 
     // 已注册，检查路径是否正确
+    print('DEBUG Registry: Already registered, checking if path is correct...');
     final isPathValid = await isPathCorrect();
+    print('DEBUG Registry: isPathValid = $isPathValid');
+
     if (!isPathValid) {
       // 路径不正确，尝试更新
+      print('DEBUG Registry: Path is WRONG, attempting to update...');
       final result = await updateContextMenuPath();
+      print('DEBUG Registry: Update result - success: ${result.success}, needsAdmin: ${result.needsAdmin}, message: ${result.message}');
       if (result.success) {
         return RegistryCheckResult(
           status: RegistryStatus.updated,
           message: '已更新右键菜单路径',
         );
       } else if (result.needsAdmin) {
+        print('DEBUG Registry: Returning needsAdmin status for path update');
         return RegistryCheckResult(
           status: RegistryStatus.needsAdmin,
           message: '需要管理员权限来更新右键菜单路径',
@@ -267,6 +305,8 @@ class WindowsRegistryService {
     }
 
     // 一切正常
+    print('DEBUG Registry: Everything OK, already correctly registered');
+    print('DEBUG Registry: ========== checkAndRegister END ==========');
     return RegistryCheckResult(
       status: RegistryStatus.alreadyRegistered,
       message: '右键菜单已正确注册',

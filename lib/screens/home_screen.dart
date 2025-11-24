@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/theme/panel_theme.dart';
 import '../repositories/project_repository.dart';
 import '../repositories/codex_repository.dart';
 import '../services/app_settings_service.dart';
@@ -80,7 +81,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 使用 PanelTheme 提供的背景色（如果有）
+    final backgroundColor = PanelTheme.backgroundColor(context);
+
     return Scaffold(
+      backgroundColor: backgroundColor,
       body: IndexedStack(
         index: _selectedIndex,
         children: [

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:window_manager/window_manager.dart';
 import '../core/theme/app_theme.dart';
+import '../core/theme/panel_theme.dart';
 import '../core/utils/platform_helper.dart';
 import '../repositories/api_codex_repository.dart';
 import '../repositories/api_session_repository.dart';
@@ -1420,87 +1421,143 @@ class _TabManagerScreenState extends State<TabManagerScreen>
     required Color cardColor,
     required Color primaryColor,
     required Color dividerColor,
-    bool showSplitButton = false,
+    bool showOpenSplitButton = false, // 左侧面板：显示"开启分屏"按钮
+    bool showCloseSplitButton = false, // 右侧面板：显示"关闭分屏"按钮
   }) {
+    // 构建标签列表
+    final tabWidgets = tabs.asMap().entries.map((entry) {
+      final index = entry.key;
+      final tab = entry.value;
+      return _buildTabItem(tab, index, primaryColor, onCloseTab, onContextMenu);
+    }).toList();
+
+    // 桌面端：添加按钮在标签后面（浏览器风格）
+    if (_isDesktop) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      final bottomLineColor = isDark ? Colors.white : Colors.black;
+
+      return Container(
+        color: cardColor,
+        child: Row(
+          children: [
+            // 标签栏 + 添加按钮区域（用 Stack 让底线延伸到整个宽度）
+            Expanded(
+              child: Stack(
+                children: [
+                  // 底层：底线延伸到整个宽度
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      height: 1,
+                      color: bottomLineColor,
+                    ),
+                  ),
+                  // 上层：TabBar + 添加按钮
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        // TabBar 保持原样
+                        TabBar(
+                          controller: controller,
+                          isScrollable: true,
+                          tabAlignment: TabAlignment.start,
+                          tabs: tabWidgets,
+                        ),
+                        // 添加按钮紧跟在标签后面
+                        _AddTabButton(
+                          onTap: onAddTab,
+                          dividerColor: dividerColor,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // 开启分屏按钮（仅左侧面板，未分屏时显示）
+            if (showOpenSplitButton && !_isSplitScreen)
+              Container(
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(color: dividerColor, width: 1),
+                  ),
+                ),
+                child: MouseRegion(
+                  onEnter: (_) => setState(() => _hoveringSplitButton = true),
+                  onExit: (_) => setState(() => _hoveringSplitButton = false),
+                  child: AnimatedOpacity(
+                    opacity: _hoveringSplitButton ? 1.0 : 0.3,
+                    duration: const Duration(milliseconds: 150),
+                    child: _buildCompactIconButton(
+                      icon: Icons.book,
+                      size: 16,
+                      tooltip: '开启分屏',
+                      onPressed: _toggleSplitScreen,
+                      dividerColor: dividerColor,
+                    ),
+                  ),
+                ),
+              ),
+            // 关闭分屏按钮（仅右侧面板，分屏时显示）
+            if (showCloseSplitButton && _isSplitScreen)
+              Container(
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(color: dividerColor, width: 1),
+                  ),
+                ),
+                child: MouseRegion(
+                  onEnter: (_) => setState(() => _hoveringSplitButton = true),
+                  onExit: (_) => setState(() => _hoveringSplitButton = false),
+                  child: AnimatedOpacity(
+                    opacity: _hoveringSplitButton ? 1.0 : 0.3,
+                    duration: const Duration(milliseconds: 150),
+                    child: _buildCompactIconButton(
+                      icon: Icons.menu_book,
+                      size: 16,
+                      tooltip: '关闭分屏',
+                      onPressed: _toggleSplitScreen,
+                      dividerColor: dividerColor,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
+    // 移动端：保持原有布局
     return Container(
       color: cardColor,
       child: Row(
         children: [
           Expanded(
-            child: PlatformHelper.showTabBarScrollbar
-                ? ScrollConfiguration(
-                    behavior: ScrollConfiguration.of(context).copyWith(
-                      dragDevices: {
-                        PointerDeviceKind.touch,
-                        PointerDeviceKind.mouse,
-                      },
-                      scrollbars: true,
-                    ),
-                    child: TabBar(
-                      controller: controller,
-                      isScrollable: true,
-                      tabAlignment: TabAlignment.start,
-                      tabs: tabs.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final tab = entry.value;
-                        return _buildTabItem(tab, index, primaryColor, onCloseTab, onContextMenu);
-                      }).toList(),
-                    ),
-                  )
-                : TabBar(
-                    controller: controller,
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.start,
-                    tabs: tabs.asMap().entries.map((entry) {
-                      final index = entry.key;
-                      final tab = entry.value;
-                      return _buildTabItem(tab, index, primaryColor, onCloseTab, onContextMenu);
-                    }).toList(),
-                  ),
+            child: TabBar(
+              controller: controller,
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              tabs: tabWidgets,
+            ),
           ),
-          // 桌面端：更紧凑的按钮布局
-          if (_isDesktop) ...[
-            // 添加标签页按钮（常显）
-            _buildCompactIconButton(
-              icon: Icons.add,
-              size: 16,
-              tooltip: '新建标签页',
+          // 移动端：添加按钮在右侧
+          Container(
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(color: dividerColor, width: 1),
+              ),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.add, size: 20),
               onPressed: onAddTab,
-              dividerColor: dividerColor,
+              tooltip: '新建标签页',
+              padding: const EdgeInsets.symmetric(horizontal: 16),
             ),
-            // 分屏切换按钮（hover时显示，仅左侧面板）
-            if (showSplitButton)
-              MouseRegion(
-                onEnter: (_) => setState(() => _hoveringSplitButton = true),
-                onExit: (_) => setState(() => _hoveringSplitButton = false),
-                child: AnimatedOpacity(
-                  opacity: _hoveringSplitButton || _isSplitScreen ? 1.0 : 0.3,
-                  duration: const Duration(milliseconds: 150),
-                  child: _buildCompactIconButton(
-                    icon: _isSplitScreen ? Icons.view_sidebar : Icons.vertical_split,
-                    size: 16,
-                    tooltip: _isSplitScreen ? '关闭分屏' : '开启分屏',
-                    onPressed: _toggleSplitScreen,
-                    dividerColor: dividerColor,
-                  ),
-                ),
-              ),
-          ] else ...[
-            // 移动端：保持原有的大按钮
-            Container(
-              decoration: BoxDecoration(
-                border: Border(
-                  left: BorderSide(color: dividerColor, width: 1),
-                ),
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.add, size: 20),
-                onPressed: onAddTab,
-                tooltip: '新建标签页',
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-              ),
-            ),
-          ],
+          ),
         ],
       ),
     );
@@ -1553,7 +1610,20 @@ class _TabManagerScreenState extends State<TabManagerScreen>
     );
   }
 
-  /// 构建单个面板（标签栏 + 内容区）
+  /// 用独立的 Navigator 包裹标签页内容
+  /// 这样页面跳转（如打开设置）只会在当前标签页/面板内进行，不会覆盖整个屏幕
+  Widget _wrapWithNavigator(TabInfo tab) {
+    return Navigator(
+      key: ValueKey('nav_${tab.id}'),
+      onGenerateRoute: (settings) {
+        return MaterialPageRoute(
+          builder: (context) => tab.content,
+          settings: settings,
+        );
+      },
+    );
+  }
+
   /// 构建可拖动的分隔条
   Widget _buildDraggableDivider(Color dividerColor, Color primaryColor) {
     return MouseRegion(
@@ -1606,7 +1676,11 @@ class _TabManagerScreenState extends State<TabManagerScreen>
     required Color cardColor,
     required Color primaryColor,
     required Color dividerColor,
-    bool showSplitButton = false,
+    bool showOpenSplitButton = false,
+    bool showCloseSplitButton = false,
+    Color? tabBarBackgroundColor, // 标签栏背景颜色（用于区分面板）
+    PanelType panelType = PanelType.single, // 面板类型
+    Color? contentBackgroundColor, // 内容区背景颜色
   }) {
     return Column(
       children: [
@@ -1619,17 +1693,25 @@ class _TabManagerScreenState extends State<TabManagerScreen>
             onCloseTab: onCloseTab,
             onContextMenu: onContextMenu,
             onAddTab: onAddTab,
-            cardColor: cardColor,
+            cardColor: tabBarBackgroundColor ?? cardColor,
             primaryColor: primaryColor,
             dividerColor: dividerColor,
-            showSplitButton: showSplitButton,
+            showOpenSplitButton: showOpenSplitButton,
+            showCloseSplitButton: showCloseSplitButton,
           ),
         ),
-        // 内容区
+        // 内容区（包裹 PanelTheme 让子组件能获取面板信息）
+        // 每个标签页内容用 Navigator 包裹，使页面跳转只在当前面板内进行
         Expanded(
-          child: TabBarView(
-            controller: controller,
-            children: tabs.map((tab) => tab.content).toList(),
+          child: PanelTheme(
+            data: PanelThemeData(
+              panelType: panelType,
+              backgroundColorOverride: contentBackgroundColor,
+            ),
+            child: TabBarView(
+              controller: controller,
+              children: tabs.map((tab) => _wrapWithNavigator(tab)).toList(),
+            ),
           ),
         ),
       ],
@@ -1658,22 +1740,30 @@ class _TabManagerScreenState extends State<TabManagerScreen>
               cardColor: cardColor,
               primaryColor: primaryColor,
               dividerColor: dividerColor,
-              showSplitButton: true,
+              showOpenSplitButton: true,
             ),
           ),
         ),
         body: TabBarView(
           controller: _tabController,
-          children: _tabs.map((tab) => tab.content).toList(),
+          children: _tabs.map((tab) => _wrapWithNavigator(tab)).toList(),
         ),
       );
     }
 
-    // 分屏模式：左右两个独立面板
+    // 分屏模式：左右两个独立面板，隐藏顶部标题栏
+    // 右侧面板背景色调整（可在此处修改）
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // ========== 右侧面板背景色配置 ==========
+    // 调整这里的颜色来改变右侧面板的背景色
+    // 深色模式：可以用 Colors.white.withOpacity(0.05) 变亮，或 Colors.black.withOpacity(0.1) 变暗
+    // 浅色模式：可以用 Colors.black.withOpacity(0.03) 变暗，或 Colors.white.withOpacity(0.5) 变亮
+    final rightPanelContentBgColor = isDark
+        ? Color.alphaBlend(const Color(0xFFF7A55A).withOpacity(0.03), Theme.of(context).scaffoldBackgroundColor)
+        : Color.alphaBlend(const Color(0xFFF7A55A).withOpacity(0.03), Theme.of(context).scaffoldBackgroundColor);
+    // ========================================
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_getAppBarTitle()),
-      ),
       body: Row(
         children: [
           // 左侧面板
@@ -1688,7 +1778,8 @@ class _TabManagerScreenState extends State<TabManagerScreen>
               cardColor: cardColor,
               primaryColor: primaryColor,
               dividerColor: dividerColor,
-              showSplitButton: true,
+              showOpenSplitButton: true,
+              panelType: PanelType.left,
             ),
           ),
           // 可拖动的分隔条
@@ -1706,10 +1797,56 @@ class _TabManagerScreenState extends State<TabManagerScreen>
                 cardColor: cardColor,
                 primaryColor: primaryColor,
                 dividerColor: dividerColor,
-                showSplitButton: false,
+                showCloseSplitButton: true,
+                panelType: PanelType.right,
+                contentBackgroundColor: rightPanelContentBgColor,
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+// 添加标签按钮 - 带 hover 效果
+class _AddTabButton extends StatefulWidget {
+  final VoidCallback onTap;
+  final Color dividerColor;
+
+  const _AddTabButton({
+    required this.onTap,
+    required this.dividerColor,
+  });
+
+  @override
+  State<_AddTabButton> createState() => _AddTabButtonState();
+}
+
+class _AddTabButtonState extends State<_AddTabButton> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedOpacity(
+          opacity: _isHovered ? 1.0 : 0.3,
+          duration: const Duration(milliseconds: 150),
+          child: Container(
+            height: 48,
+            width: 32,
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.add,
+              size: 18,
+              color: widget.dividerColor,
+            ),
+          ),
+        ),
       ),
     );
   }

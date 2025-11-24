@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/panel_theme.dart';
 import '../../models/project.dart';
 import '../../models/session.dart';
 import '../../repositories/project_repository.dart';
@@ -481,7 +482,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
     final errorColor = Theme.of(context).colorScheme.error;
     final dividerColor = Theme.of(context).dividerColor;
     final cardColor = Theme.of(context).cardColor;
-    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+    final backgroundColor = PanelTheme.backgroundColor(context);
 
     return PopScope(
       canPop: widget.onGoBack == null, // 如果有 onGoBack 回调，不允许默认 pop
@@ -575,7 +576,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
     final primaryColor = Theme.of(context).colorScheme.primary;
     final dividerColor = Theme.of(context).dividerColor;
     final cardColor = Theme.of(context).cardColor;
-    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+    final backgroundColor = PanelTheme.backgroundColor(context);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -882,7 +883,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> with AutomaticKee
 
   Widget _buildInfoChip({required IconData icon, required String label}) {
     final appColors = context.appColors;
-    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+    final backgroundColor = PanelTheme.backgroundColor(context);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

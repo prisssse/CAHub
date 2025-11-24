@@ -1,5 +1,8 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/panel_theme.dart';
 import '../../models/project.dart';
 import '../../models/session.dart';
 import '../../repositories/project_repository.dart';
@@ -44,6 +47,12 @@ class SessionListScreen extends StatefulWidget {
 class _SessionListScreenState extends State<SessionListScreen> {
   List<Session> _sessions = [];
   bool _isLoading = false;
+
+  // 判断是否为桌面平台
+  bool get _isDesktop {
+    if (kIsWeb) return false;
+    return Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+  }
 
   @override
   void initState() {
@@ -121,8 +130,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
     final primaryColor = Theme.of(context).colorScheme.primary;
     final errorColor = Theme.of(context).colorScheme.error;
     final dividerColor = Theme.of(context).dividerColor;
-    final cardColor = Theme.of(context).cardColor;
-    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+    final cardColor = PanelTheme.cardColor(context);
+    final backgroundColor = PanelTheme.backgroundColor(context);
 
     // 如果是选择模式且 project 为 null，显示项目列表
     if (widget.isSelectMode && widget.project == null) {
@@ -156,14 +165,25 @@ class _SessionListScreenState extends State<SessionListScreen> {
             },
           ),
           title: Text(widget.project?.name ?? '会话'),
+          // 桌面端：添加按钮放在 AppBar 右侧
+          actions: _isDesktop && !widget.isSelectMode
+              ? [
+                  IconButton(
+                    icon: const Icon(Icons.add),
+                    onPressed: _createNewSession,
+                    tooltip: '新建对话',
+                  ),
+                ]
+              : null,
         ),
-      floatingActionButton: widget.isSelectMode
-          ? null
-          : FloatingActionButton(
-              onPressed: _createNewSession,
-              backgroundColor: primaryColor,
-              child: const Icon(Icons.add),
-            ),
+        // 移动端：使用悬浮按钮
+        floatingActionButton: !_isDesktop && !widget.isSelectMode
+            ? FloatingActionButton(
+                onPressed: _createNewSession,
+                backgroundColor: primaryColor,
+                child: const Icon(Icons.add),
+              )
+            : null,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(

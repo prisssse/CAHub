@@ -96,6 +96,12 @@ class _MyAppState extends State<MyApp> {
   ApiService? _apiService;
   CodexApiService? _codexApiService;
 
+  // 全局导航键，用于在 MaterialApp 上下文中显示对话框
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
+  // 标记是否需要显示管理员权限对话框（延迟到 MaterialApp 准备好后显示）
+  bool _pendingAdminDialog = false;
+
   @override
   void initState() {
     super.initState();
@@ -139,9 +145,12 @@ class _MyAppState extends State<MyApp> {
       // 初始化标题栏颜色
       await _updateWindowTitleBarColor();
 
-      // Windows: 检查并注册右键菜单（只在 Release 模式下）
-      if (Platform.isWindows && kReleaseMode) {
-        _checkAndRegisterContextMenu();
+      // Windows: 检查并注册右键菜单
+      // 在 Release 模式下自动执行，Debug 模式下也执行以便测试
+      if (Platform.isWindows) {
+        print('DEBUG main: Will check context menu registration (kReleaseMode: $kReleaseMode)');
+        // 使用 await 确保能正确捕获错误
+        await _checkAndRegisterContextMenu();
       }
     } catch (e) {
       print('Error initializing services: $e');
@@ -153,81 +162,138 @@ class _MyAppState extends State<MyApp> {
 
   /// 检查并注册 Windows 右键菜单
   Future<void> _checkAndRegisterContextMenu() async {
+    print('DEBUG main: _checkAndRegisterContextMenu START');
     // 只在 Windows 平台执行
-    if (!Platform.isWindows) return;
+    if (!Platform.isWindows) {
+      print('DEBUG main: Not Windows, skipping');
+      return;
+    }
 
     try {
+      print('DEBUG main: Calling WindowsRegistryService.checkAndRegister()...');
       final result = await WindowsRegistryService.checkAndRegister();
+      print('DEBUG main: Got result - status: ${result.status}, message: ${result.message}');
 
       switch (result.status) {
         case RegistryStatus.registered:
         case RegistryStatus.updated:
-          print('DEBUG: ${result.message}');
+          print('DEBUG main: Showing success notification');
           // 注册/更新成功，显示通知
           _showRegistryNotification(result.message, isSuccess: true);
           break;
 
         case RegistryStatus.alreadyRegistered:
-          print('DEBUG: ${result.message}');
+          print('DEBUG main: Already registered correctly, no action needed');
           // 已经正确注册，无需通知用户
           break;
 
         case RegistryStatus.needsAdmin:
-          print('DEBUG: ${result.message}');
-          // 需要管理员权限，显示对话框让用户选择
-          _showAdminPermissionDialog();
+          print('DEBUG main: NEEDS ADMIN - attempting UAC elevation directly');
+          // 需要管理员权限，直接尝试触发 UAC 提权
+          await _attemptUACElevation();
           break;
 
         case RegistryStatus.failed:
         case RegistryStatus.notSupported:
-          print('DEBUG: ${result.message}');
+          print('DEBUG main: Failed or not supported - ${result.message}');
           break;
       }
     } catch (e) {
-      print('Error checking/registering context menu: $e');
+      print('DEBUG main: Exception in _checkAndRegisterContextMenu: $e');
     }
+    print('DEBUG main: _checkAndRegisterContextMenu END');
   }
 
-  /// 显示管理员权限请求对话框
-  void _showAdminPermissionDialog() {
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted) return;
+  /// 直接尝试 UAC 提权来注册右键菜单
+  Future<void> _attemptUACElevation() async {
+    print('DEBUG main: _attemptUACElevation - triggering UAC...');
 
-      showDialog(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('需要管理员权限'),
-          content: const Text(
-            '首次运行需要管理员权限来注册右键菜单功能。\n\n'
-            '注册后，您可以在文件夹上右键选择"使用 CodeAgent Hub 打开"。\n\n'
-            '是否以管理员身份重新运行？',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('稍后再说'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(dialogContext);
-                // 触发 UAC 提权
-                final success = await WindowsRegistryService.restartAsAdmin();
-                if (!success && mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('无法启动管理员权限请求，您可以手动右键程序选择"以管理员身份运行"'),
-                      duration: Duration(seconds: 5),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              },
-              child: const Text('确定'),
-            ),
-          ],
-        ),
-      );
+    final success = await WindowsRegistryService.restartAsAdmin();
+
+    print('DEBUG main: UAC elevation result: $success');
+
+    if (!success) {
+      // UAC 被用户取消或失败，显示提示对话框
+      print('DEBUG main: UAC failed or cancelled, showing fallback dialog');
+      _showAdminPermissionDialog();
+    }
+    // 如果 UAC 成功，会启动一个新的管理员进程来注册，当前进程继续运行
+  }
+
+  /// 显示管理员权限请求对话框（作为 UAC 失败后的备选方案）
+  void _showAdminPermissionDialog() {
+    print('DEBUG main: _showAdminPermissionDialog called');
+
+    // 标记需要显示对话框，等待 MaterialApp 准备好
+    setState(() {
+      _pendingAdminDialog = true;
     });
+
+    // 延迟更长时间，确保 MaterialApp 完全准备好
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      _tryShowAdminDialog();
+    });
+  }
+
+  /// 尝试显示管理员对话框（使用 navigatorKey）
+  void _tryShowAdminDialog() {
+    print('DEBUG main: _tryShowAdminDialog called');
+
+    if (!_pendingAdminDialog) {
+      print('DEBUG main: No pending admin dialog');
+      return;
+    }
+
+    final navigatorContext = _navigatorKey.currentContext;
+    print('DEBUG main: Navigator context: $navigatorContext');
+
+    if (navigatorContext == null) {
+      print('DEBUG main: Navigator context not ready, retrying in 500ms...');
+      // 如果 context 还没准备好，延迟重试
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _tryShowAdminDialog();
+      });
+      return;
+    }
+
+    // 清除标记
+    _pendingAdminDialog = false;
+
+    print('DEBUG main: Showing admin permission dialog with navigator context...');
+    showDialog(
+      context: navigatorContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('需要管理员权限'),
+        content: const Text(
+          '首次运行需要管理员权限来注册右键菜单功能。\n\n'
+          '注册后，您可以在文件夹上右键选择"使用 CodeAgent Hub 打开"。\n\n'
+          '是否以管理员身份重新运行？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('稍后再说'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              // 触发 UAC 提权
+              final success = await WindowsRegistryService.restartAsAdmin();
+              if (!success && navigatorContext.mounted) {
+                ScaffoldMessenger.of(navigatorContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('无法启动管理员权限请求，您可以手动右键程序选择"以管理员身份运行"'),
+                    duration: Duration(seconds: 5),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 显示注册表相关通知
@@ -260,6 +326,7 @@ class _MyAppState extends State<MyApp> {
       title: AppConfig.appName,
       theme: theme,
       debugShowCheckedModeBanner: false,
+      navigatorKey: _navigatorKey, // 添加导航键以便在 MaterialApp 上下文中显示对话框
       builder: (context, child) {
         // 应用全局字号缩放
         return MediaQuery(

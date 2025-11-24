@@ -12,6 +12,7 @@ import '../models/session_settings.dart';
 import '../models/codex_user_settings.dart';
 import '../widgets/message_bubble.dart';
 import '../core/theme/app_theme.dart';
+import '../core/theme/panel_theme.dart';
 import '../core/utils/platform_helper.dart';
 import '../repositories/api_codex_repository.dart';
 import '../repositories/session_repository.dart';
@@ -1107,6 +1108,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         }
       },
       child: Scaffold(
+        backgroundColor: PanelTheme.backgroundColor(context),
         appBar: AppBar(
           leading: widget.onBack != null
               ? IconButton(
@@ -1310,6 +1312,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                             //   _buildMessageNavigationButtons(),
                             // 滚动到底部按钮
                             if (_userScrolling) _buildScrollToBottomButton(),
+                            // 浮动模式指示器
+                            _buildModeIndicator(),
                           ],
                         ),
                       ),
@@ -1521,35 +1525,64 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   }
 
   Widget _buildScrollToBottomButton() {
-    final primaryColor = Theme.of(context).colorScheme.primary;
-
     return Positioned(
-      right: 16,
-      bottom: 16,
-      child: AnimatedOpacity(
-        opacity: _userScrolling ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 200),
-        child: Material(
-          color: primaryColor.withOpacity(0.9),
-          borderRadius: BorderRadius.circular(28),
-          elevation: 4,
-          child: InkWell(
+      left: 0,
+      right: 0,
+      bottom: 8,
+      child: Center(
+        child: AnimatedOpacity(
+          opacity: _userScrolling ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 200),
+          child: _ScrollToBottomIcon(
             onTap: () {
               setState(() => _userScrolling = false);
               _scrollToBottomImmediate();
             },
-            borderRadius: BorderRadius.circular(28),
-            child: Container(
-              width: 56,
-              height: 56,
-              alignment: Alignment.center,
-              child: const Icon(
-                Icons.arrow_downward,
-                color: Colors.white,
-                size: 24,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModeIndicator() {
+    final isCodex = widget.repository is ApiCodexRepository;
+    final modeName = isCodex ? 'Codex' : 'Claude Code';
+    final modeColor = isCodex ? Colors.green : Colors.orange;
+
+    return Positioned(
+      top: 8,
+      right: 8,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: modeColor.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: modeColor.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: modeColor,
+                shape: BoxShape.circle,
               ),
             ),
-          ),
+            const SizedBox(width: 6),
+            Text(
+              modeName,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: modeColor.withOpacity(0.9),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2106,6 +2139,40 @@ class _CommandItemState extends State<_CommandItem> {
                 overflow: TextOverflow.ellipsis,
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// 滚动到底部按钮 - hover 时箭头加深
+class _ScrollToBottomIcon extends StatefulWidget {
+  final VoidCallback onTap;
+
+  const _ScrollToBottomIcon({required this.onTap});
+
+  @override
+  State<_ScrollToBottomIcon> createState() => _ScrollToBottomIconState();
+}
+
+class _ScrollToBottomIconState extends State<_ScrollToBottomIcon> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(
+            Icons.keyboard_arrow_down,
+            color: _isHovered ? Colors.black87 : Colors.black54,
+            size: 28,
           ),
         ),
       ),
